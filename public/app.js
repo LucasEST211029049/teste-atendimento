@@ -286,6 +286,8 @@
     const acaoArea = frag.querySelector('.d-acao-area');
     montarAcaoArea(acaoArea, t);
 
+    frag.querySelector('.d-btn-ficha').addEventListener('click', () => abrirFicha(t.cpfCnpj));
+
     container.innerHTML = '';
     container.appendChild(frag);
   }
@@ -429,6 +431,209 @@
       const body = card.querySelector('.fila-card-body');
       renderDetalhe(body, t);
       lista.appendChild(card);
+    });
+  }
+
+  // ---------------------------------------------------- FICHA CADASTRAL ----
+  function formatarDataISO(iso) {
+    if (!iso) return '-';
+    const [ano, mes, dia] = String(iso).slice(0, 10).split('-');
+    return `${dia}/${mes}/${ano}`;
+  }
+
+  function formatarDataHoraISO(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    return `${formatarDataISO(iso)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  function pad2(n) {
+    return String(n).padStart(2, '0');
+  }
+
+  function formatarMoeda(valor) {
+    if (valor === null || valor === undefined) return '-';
+    return Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  document.querySelectorAll('.subtab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.subtab-btn').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.subtab-content').forEach((c) => c.classList.remove('active'));
+      btn.classList.add('active');
+      el(`ficha-sub-${btn.dataset.subtab}`).classList.add('active');
+    });
+  });
+
+  async function abrirFicha(cpfCnpj) {
+    el('modal-ficha').hidden = false;
+    el('ficha-topo').innerHTML = 'Carregando...';
+    el('ficha-risco-corpo').innerHTML = 'Carregando...';
+    el('ficha-anotacoes-corpo').innerHTML = 'Carregando...';
+    try {
+      const ficha = await api(`/associados/${encodeURIComponent(cpfCnpj)}`);
+      renderFichaTopo(ficha.associado);
+      renderFichaRisco(ficha);
+      const anotacoes = await api(`/associados/${encodeURIComponent(cpfCnpj)}/anotacoes`);
+      renderFichaAnotacoes(anotacoes, cpfCnpj);
+    } catch (err) {
+      el('ficha-risco-corpo').innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message)}</p>`;
+      el('ficha-anotacoes-corpo').innerHTML = '';
+    }
+  }
+
+  function renderFichaTopo(a) {
+    el('ficha-topo').innerHTML = `
+      <div class="ft-linha">
+        <div class="ft-item"><span class="rotulo">CPF/CNPJ:</span>${a.cpfCnpj}</div>
+        <div class="ft-item"><span class="rotulo">Nome:</span>${escapeHtml(a.nome)}</div>
+        <div class="ft-item"><span class="rotulo">Conta Digital:</span>${a.contaDigital || '-'} (${a.contaStatus || '-'})</div>
+      </div>
+      <div class="ft-linha">
+        <div class="ft-item"><span class="rotulo">Data de Nascimento:</span>${formatarDataISO(a.dataNascimento)}</div>
+        <div class="ft-item"><span class="rotulo">Data de Associação:</span>${formatarDataISO(a.dataAssociacao)}</div>
+        <div class="ft-item"><span class="rotulo">Segmento:</span>${a.segmento || '-'}</div>
+      </div>
+      <div class="ft-linha">
+        <div class="ft-item"><span class="rotulo">Renda/Tipo de Renda:</span>${formatarMoeda(a.rendaMensal)} - ${a.rendaTipo || '-'} (${a.rendaStatus})</div>
+        <div class="ft-item"><span class="rotulo">Validade da Renda:</span>${formatarDataISO(a.rendaValidade)}</div>
+        <div class="ft-item"><span class="rotulo">Situação Cadastral:</span>${a.situacaoCadastral}</div>
+      </div>
+      <div class="ft-linha">
+        <div class="ft-item"><span class="rotulo">Telefone Celular:</span>${a.telefone || '-'}</div>
+        <div class="ft-item"><span class="rotulo">E-mail:</span>${a.email || '-'}</div>
+        <div class="ft-item"><span class="rotulo">Bco/Ag/Conta Principal:</span>${a.banco || '-'} / ${a.agencia || '-'} / ${a.conta || '-'}</div>
+      </div>
+    `;
+  }
+
+  function situacaoRiscoClasse(status) {
+    if (status === 'Vigente') return 'situacao-finalizado';
+    if (status === 'Vencido') return 'situacao-pendente';
+    return 'situacao-bloqueado';
+  }
+
+  function renderFichaRisco(ficha) {
+    const { risco, categorias, lgc, temAnotacaoAtiva, associado } = ficha;
+
+    const linhasCategoria = categorias.length
+      ? categorias
+          .map(
+            (c) => `
+        <tr class="${c.alerta ? 'alerta' : ''}">
+          <td>${escapeHtml(c.categoria)}</td>
+          <td class="num">${c.scoreAnterior ?? '-'}</td>
+          <td class="num">${c.valorAnterior ?? '-'}</td>
+          <td class="num">${c.scoreAtual ?? '-'}</td>
+          <td class="num">${c.valorAtual ?? '-'}</td>
+        </tr>`
+          )
+          .join('')
+      : '<tr><td colspan="5" class="anotacao-vazia">Sem detalhamento por categoria.</td></tr>';
+
+    el('ficha-risco-corpo').innerHTML = `
+      <div class="ficha-acoes">
+        <button class="btn btn-primary" id="btn-analise-risco">Executar Nova Análise de Risco</button>
+      </div>
+      ${temAnotacaoAtiva ? '<p class="aviso-outra-area">⚠ Existe anotação interna ativa bloqueando o risco deste associado — veja a aba "Anotações Cadastrais".</p>' : ''}
+      <table class="risco-tabela">
+        <thead><tr><th>Risco do Associado</th><th>Anterior</th><th>Atual</th></tr></thead>
+        <tbody>
+          <tr><td>Risco</td><td>${risco.riscoAnterior || '-'}</td><td>${risco.riscoAtual}</td></tr>
+          <tr><td>Status</td><td></td><td><span class="situacao-pill ${situacaoRiscoClasse(risco.status)}">${risco.status}</span></td></tr>
+          <tr><td>Implantado em</td><td></td><td>${formatarDataISO(risco.implantadoEm)}</td></tr>
+          <tr><td>Score</td><td>${risco.scoreAnterior ?? '-'}</td><td>${risco.scoreAtual}</td></tr>
+        </tbody>
+      </table>
+      <table class="risco-tabela">
+        <thead><tr><th>Categoria</th><th>Score Anterior</th><th>Valor Anterior</th><th>Score Atual</th><th>Valor Atual</th></tr></thead>
+        <tbody>${linhasCategoria}</tbody>
+      </table>
+      <div class="ficha-grid">
+        <div class="lgc-painel">
+          <h4>LGC</h4>
+          <div class="lgc-linha"><span>Situação do LGC</span><span class="valor">${risco.status}</span></div>
+          <div class="lgc-linha"><span>Validade do LGC</span><span class="valor">${formatarDataISO(lgc.validade)}</span></div>
+          <div class="lgc-linha"><span>Renda Mensal</span><span class="valor">${formatarMoeda(associado.rendaMensal)}</span></div>
+          <div class="lgc-linha"><span>Multiplicador Segmento</span><span class="valor">${lgc.multiplicadorSegmento ?? '-'}</span></div>
+          <div class="lgc-linha"><span>Risco Associado</span><span class="valor">${risco.riscoAtual}</span></div>
+          <div class="lgc-linha"><span>Fator de Risco</span><span class="valor">${lgc.fatorRisco ?? '-'}</span></div>
+          <div class="lgc-linha"><span>Fator de Endividamento</span><span class="valor">${lgc.fatorEndividamento ?? '-'}</span></div>
+          <div class="lgc-linha"><span>Redutor Temporário</span><span class="valor">${lgc.redutorTemporario ?? '-'}</span></div>
+          <div class="lgc-linha"><span>Limite Global</span><span class="valor">${formatarMoeda(lgc.limiteGlobal)}</span></div>
+          <div class="lgc-linha"><span>Responsabilidades</span><span class="valor">- ${formatarMoeda(lgc.responsabilidades)}</span></div>
+          <div class="lgc-linha"><span>Liberações Mês Corrente</span><span class="valor">- ${formatarMoeda(lgc.liberacoesMes)}</span></div>
+          <div class="lgc-linha"><span>Amortizações Mês Corrente</span><span class="valor">+ ${formatarMoeda(lgc.amortizacoesMes)}</span></div>
+          <div class="lgc-linha"><span><strong>Margem Operacional</strong></span><span class="valor"><strong>${formatarMoeda(lgc.margemOperacional)}</strong></span></div>
+        </div>
+        <div class="margem-painel">
+          <h4>Margem de Descontos</h4>
+          <div class="lgc-linha"><span>Percentual</span><span class="valor">${lgc.margemDescontoPercentual != null ? lgc.margemDescontoPercentual + '%' : '-'}</span></div>
+          <div class="lgc-linha"><span>Máxima</span><span class="valor">${formatarMoeda(lgc.margemDescontoMaxima)}</span></div>
+          <div class="lgc-linha"><span>Utilizada</span><span class="valor">${formatarMoeda(lgc.margemDescontoUtilizada)}</span></div>
+          <div class="lgc-linha"><span><strong>Disponível</strong></span><span class="valor"><strong>${formatarMoeda(lgc.margemDescontoDisponivel)}</strong></span></div>
+        </div>
+      </div>
+    `;
+
+    el('btn-analise-risco').addEventListener('click', async () => {
+      try {
+        await api(`/associados/${encodeURIComponent(associado.cpfCnpj)}/analise-risco`, { method: 'POST' });
+        toast('Nova análise de risco executada com sucesso.');
+        await abrirFicha(associado.cpfCnpj);
+      } catch (err) {
+        toast(err.message, 'erro');
+      }
+    });
+  }
+
+  function renderFichaAnotacoes(dados, cpfCnpj) {
+    const podeBaixar = (an) => state.user.areaId === an.areaCompetenteId;
+
+    const cardAtiva = (an) => `
+      <div class="anotacao-card bloqueia">
+        <div class="an-titulo">${an.tipoCodigo} - ${escapeHtml(an.descricao)}</div>
+        <div class="an-meta">Incluída em ${formatarDataHoraISO(an.dataInclusao)} por ${an.usuarioInclusao || '-'} · Competência para baixa: ${an.areaCompetenteNome}</div>
+        <div class="an-acoes">
+          ${
+            podeBaixar(an)
+              ? `<button class="btn btn-secondary btn-baixar" data-id="${an.id}">Baixar Anotação</button>`
+              : `<span class="aviso-outra-area">Somente a área ${an.areaCompetenteNome} pode baixar esta anotação.</span>`
+          }
+        </div>
+      </div>
+    `;
+
+    const cardBaixada = (an) => `
+      <div class="anotacao-card">
+        <div class="an-titulo">${an.tipoCodigo} - ${escapeHtml(an.descricao)}</div>
+        <div class="an-meta">
+          Incluída em ${formatarDataHoraISO(an.dataInclusao)} por ${an.usuarioInclusao || '-'}<br>
+          Baixada em ${formatarDataHoraISO(an.dataBaixa)} por ${an.usuarioBaixa || '-'}${an.motivoBaixa ? ` — "${escapeHtml(an.motivoBaixa)}"` : ''}
+        </div>
+      </div>
+    `;
+
+    el('ficha-anotacoes-corpo').innerHTML = `
+      <h4 style="margin:6px 0;">Anotações Ativas</h4>
+      ${dados.ativas.length ? dados.ativas.map(cardAtiva).join('') : '<p class="anotacao-vazia">Não há restrições cadastradas para o associado.</p>'}
+      <h4 style="margin:18px 0 6px;">Anotações Baixadas</h4>
+      ${dados.baixadas.length ? dados.baixadas.map(cardBaixada).join('') : '<p class="anotacao-vazia">Não há restrições baixadas para o associado.</p>'}
+    `;
+
+    el('ficha-anotacoes-corpo').querySelectorAll('.btn-baixar').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const motivo = prompt('Descreva o motivo da baixa desta anotação:');
+        if (motivo === null) return;
+        if (!motivo.trim()) return toast('Informe o motivo da baixa.', 'erro');
+        try {
+          await api(`/anotacoes/${btn.dataset.id}/baixar`, { method: 'POST', body: { motivo: motivo.trim() } });
+          toast('Anotação baixada com sucesso.');
+          await abrirFicha(cpfCnpj);
+        } catch (err) {
+          toast(err.message, 'erro');
+        }
+      });
     });
   }
 

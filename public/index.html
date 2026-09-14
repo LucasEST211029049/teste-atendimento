@@ -189,6 +189,31 @@
     </div>
   </div>
 
+  <!-- MODAL: FICHA CADASTRAL DO ASSOCIADO (Risco/LGC + Anotações) -->
+  <div id="modal-ficha" class="modal-overlay" hidden>
+    <div class="modal modal-grande">
+      <div class="modal-header">
+        <span>Ficha Cadastral</span>
+        <button class="modal-close" data-close="modal-ficha">✕</button>
+      </div>
+      <div class="ficha-corpo">
+        <div class="ficha-topo" id="ficha-topo"></div>
+
+        <nav class="tabs tabs-sub">
+          <button class="subtab-btn active" data-subtab="risco">Risco Associado/LGC</button>
+          <button class="subtab-btn" data-subtab="anotacoes">Anotações Cadastrais</button>
+        </nav>
+
+        <div id="ficha-sub-risco" class="subtab-content active">
+          <div id="ficha-risco-corpo">Carregando...</div>
+        </div>
+        <div id="ficha-sub-anotacoes" class="subtab-content">
+          <div id="ficha-anotacoes-corpo">Carregando...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <template id="tpl-linha">
     <tr class="linha-ticket">
       <td class="col-protocolo"></td>
@@ -212,6 +237,7 @@
     <div class="detalhe">
       <div class="detalhe-header">
         <strong>Protocolo: <span class="d-protocolo"></span></strong>
+        <button type="button" class="link-btn d-btn-ficha">Ficha Cadastral do Associado</button>
       </div>
       <div class="detalhe-linha">
         <div><span class="d-label">(Abertura) Data:</span> <span class="d-data"></span></div>

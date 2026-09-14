@@ -207,6 +207,73 @@ function build(baseUrl) {
           },
         },
       },
+      '/api/associados/{cpfCnpj}': {
+        get: {
+          summary: 'Ficha cadastral do associado: dados cadastrais, risco/score e LGC/limite',
+          parameters: [{ name: 'cpfCnpj', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: {
+              description: 'Ficha do associado',
+              content: {
+                'application/json': {
+                  schema: {
+                    type: 'object',
+                    properties: {
+                      associado: { type: 'object' },
+                      risco: { type: 'object' },
+                      categorias: { type: 'array', items: { type: 'object' } },
+                      lgc: { type: 'object' },
+                      temAnotacaoAtiva: { type: 'boolean' },
+                    },
+                  },
+                },
+              },
+            },
+            404: { description: 'Associado não encontrado', content: { 'application/json': { schema: erroSchema } } },
+          },
+        },
+      },
+      '/api/associados/{cpfCnpj}/analise-risco': {
+        post: {
+          summary:
+            'Executa uma nova análise de risco do associado (recalcula score/risco e revalida por 1 ano). ' +
+            'Se houver anotação interna ativa, o risco é recalculado mas o status permanece Bloqueado.',
+          parameters: [{ name: 'cpfCnpj', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: { description: 'Risco atualizado', content: { 'application/json': { schema: { type: 'object', properties: { risco: { type: 'object' } } } } } },
+            404: { description: 'Associado não encontrado', content: { 'application/json': { schema: erroSchema } } },
+          },
+        },
+      },
+      '/api/associados/{cpfCnpj}/anotacoes': {
+        get: {
+          summary: 'Lista as anotações internas (ativas e baixadas) do associado',
+          parameters: [{ name: 'cpfCnpj', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: {
+            200: {
+              description: 'Anotações do associado',
+              content: { 'application/json': { schema: { type: 'object', properties: { ativas: { type: 'array', items: { type: 'object' } }, baixadas: { type: 'array', items: { type: 'object' } } } } } },
+            },
+          },
+        },
+      },
+      '/api/anotacoes/{id}/baixar': {
+        post: {
+          summary:
+            'Baixa (resolve) uma anotação interna. Só é permitido para um usuário da área competente pelo ' +
+            'código da anotação (ex.: 234 - Limite Suspenso só pode ser baixada pela DIREL/GECRE/CREDI).',
+          parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object', required: ['motivo'], properties: { motivo: { type: 'string' } } } } },
+          },
+          responses: {
+            200: { description: 'Anotação baixada', content: { 'application/json': { schema: { type: 'object', properties: { anotacao: { type: 'object' } } } } } },
+            403: { description: 'Usuário sem competência para baixar esta anotação', content: { 'application/json': { schema: erroSchema } } },
+            409: { description: 'Anotação já estava baixada', content: { 'application/json': { schema: erroSchema } } },
+          },
+        },
+      },
     },
   };
 }

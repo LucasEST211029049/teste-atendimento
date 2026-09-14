@@ -6,9 +6,13 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "node server/index.js"
+    "dev": "node server/index.js",
+    "db:schema": "psql \"${DATABASE_URL:-postgres://comunicador:comunicador@localhost:5432/comunicador}\" -f db/schema.sql",
+    "db:seed": "psql \"${DATABASE_URL:-postgres://comunicador:comunicador@localhost:5432/comunicador}\" -f db/seed.sql",
+    "db:setup": "npm run db:schema && npm run db:seed"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "pg": "^8.23.0"
   }
 }

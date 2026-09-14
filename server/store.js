@@ -1,319 +1,349 @@
-const fs = require('fs');
-const path = require('path');
-const { AREAS, areaById } = require('./data');
-
-const DATA_FILE = path.join(__dirname, '..', 'data.json');
+const pool = require('./db');
 
 function pad(n) {
   return String(n).padStart(2, '0');
 }
 
-function nowParts(date = new Date()) {
+function formatarData(d) {
+  const dt = new Date(d);
+  return `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()}`;
+}
+
+function formatarHora(d) {
+  const dt = new Date(d);
+  return `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+}
+
+// Erros de negócio das funções PL/pgSQL vêm com um prefixo (ver db/schema.sql)
+// que mapeamos para o mesmo formato { erro, mensagem } usado pela API.
+function mapPgErro(err) {
+  const match = /^(NAO_ENCONTRADO|SEM_PERMISSAO|CONFLITO|DADOS_INVALIDOS):\s*(.*)$/.exec(err.message || '');
+  if (!match) throw err;
+  const codigos = { NAO_ENCONTRADO: 404, SEM_PERMISSAO: 403, CONFLITO: 409, DADOS_INVALIDOS: 400 };
+  return { erro: codigos[match[1]], mensagem: match[2] };
+}
+
+function mapTicketRow(row) {
   return {
-    data: `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`,
-    hora: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
-    iso: date.toISOString(),
+    protocolo: row.protocolo,
+    dataAberturaIso: new Date(row.data_abertura).toISOString(),
+    dataSolicitacao: formatarData(row.data_abertura),
+    tipoRegistro: 'Atendimento',
+    cpfCnpj: row.cpf_cnpj,
+    nome: row.nome,
+    origem: row.origem,
+    assunto: row.assunto,
+    areaId: row.area_id,
+    areaNome: row.area_nome,
+    situacao: row.situacao,
+    responsavelAtual: row.responsavel_nome,
+    responsavelUsername: row.responsavel_username,
+    ocorrencia: row.ocorrencia,
+    prazoDias: Number(row.prazo_dias),
   };
 }
 
-function gerarProtocolo() {
-  // Protocolo numérico de 11 dígitos, no estilo do sistema original.
-  let numero = '';
-  for (let i = 0; i < 11; i++) numero += Math.floor(Math.random() * 10);
-  return numero;
-}
-
-function seedTickets() {
-  const t0 = new Date();
-  const diasAtras = (d) => new Date(t0.getTime() - d * 24 * 60 * 60 * 1000);
-
-  const tickets = [];
-
-  // 1) Réplica do exemplo mostrado nas telas de referência: pendente, ainda não atendido.
-  tickets.push(criarRegistro({
-    dataAbertura: diasAtras(0),
-    cpfCnpj: '170.519.317-09',
-    nome: 'Felipe Ferreira Felgueiras',
-    origem: 'WhatsApp',
-    assunto: 'Crédito / Limite de Crédito',
-    areaId: 'direl-gecre-credi',
-    aberturaResponsavel: 'Camilla Alexandre da Silva (ATEND)',
-    ocorrencia:
-      'Cooperado com interesse em crédito. Informou que todas as pendências existentes em seu CPF foram liquidadas, novas consultas realizadas confirmando.\nPoderiam, por gentileza, realizar uma nova consulta MACRI?',
-  }));
-
-  // 2) Outro pendente na mesma área, para testar a fila de atendimento.
-  tickets.push(criarRegistro({
-    dataAbertura: diasAtras(1),
-    cpfCnpj: '412.998.201-33',
-    nome: 'Marina Souza Andrade',
-    origem: 'Telefone',
-    assunto: 'Empréstimo / Simulação',
-    areaId: 'direl-gecre-credi',
-    aberturaResponsavel: 'Camilla Alexandre da Silva (ATEND)',
-    ocorrencia: 'Cooperada solicitou simulação de empréstimo consignado para quitação de dívidas em outra instituição.',
-  }));
-
-  // 3) Já em atendimento por alguém (para demonstrar bloqueio de sobreposição).
-  const t3 = criarRegistro({
-    dataAbertura: diasAtras(2),
-    cpfCnpj: '098.765.432-11',
-    nome: 'João Pedro Lima',
-    origem: 'E-mail',
-    assunto: 'Cartão / Bloqueio e Desbloqueio',
-    areaId: 'direl-gecre-credi',
-    aberturaResponsavel: 'Camilla Alexandre da Silva (ATEND)',
-    ocorrencia: 'Cliente solicita desbloqueio do cartão de crédito após viagem internacional.',
-  });
-  atenderRegistro(t3, 'Lucas Oliveira', 'lucas.fic', diasAtras(2));
-  tickets.push(t3);
-
-  // 4) Área DIREL / GECOR / COADM, pendente.
-  tickets.push(criarRegistro({
-    dataAbertura: diasAtras(0),
-    cpfCnpj: '321.654.987-20',
-    nome: 'Construtora Horizonte Ltda',
-    origem: 'Presencial',
-    assunto: 'Cadastro / Atualização Cadastral',
-    areaId: 'direl-gecor-coadm',
-    aberturaResponsavel: 'Bruna Nascimento (ATEND)',
-    ocorrencia: 'Empresa solicita atualização de contrato social e quadro societário no cadastro.',
-  }));
-
-  // 5) Área DIREL / GECAN / ATEND, já finalizado (histórico completo).
-  const t5 = criarRegistro({
-    dataAbertura: diasAtras(4),
-    cpfCnpj: '556.112.400-77',
-    nome: 'Cláudia Ramos Vieira',
-    origem: 'Chat Site',
-    assunto: 'Cobrança / Renegociação de Dívida',
-    areaId: 'direl-gecan-atend',
-    aberturaResponsavel: 'Bruna Nascimento (ATEND)',
-    ocorrencia: 'Cliente deseja renegociar parcelas em atraso do cartão de crédito.',
-  });
-  atenderRegistro(t5, 'Funcionário Padrão', 'funcionario.fic', diasAtras(3));
-  finalizarRegistro(t5, 'Funcionário Padrão', 'Renegociação concluída, novo boleto enviado por e-mail.', diasAtras(3));
-  tickets.push(t5);
-
-  // 6) Encaminhado entre áreas (para demonstrar o fluxo de encaminhamento).
-  const t6 = criarRegistro({
-    dataAbertura: diasAtras(3),
-    cpfCnpj: '789.456.123-55',
-    nome: 'Roberto Carlos Nunes',
-    origem: 'WhatsApp',
-    assunto: 'Crédito / Limite de Crédito',
-    areaId: 'direl-gecan-atend',
-    aberturaResponsavel: 'Bruna Nascimento (ATEND)',
-    ocorrencia: 'Cliente solicitou aumento de limite de crédito rotativo.',
-  });
-  atenderRegistro(t6, 'Funcionário Padrão', 'funcionario.fic', diasAtras(3));
-  encaminharRegistro(t6, 'Funcionário Padrão', 'Análise inicial concluída, encaminhando para a área de crédito avaliar o limite.', 'direl-gecre-credi', diasAtras(2));
-  tickets.push(t6);
-
-  return tickets;
-}
-
-function criarRegistro({ dataAbertura, cpfCnpj, nome, origem, assunto, areaId, aberturaResponsavel, ocorrencia }) {
-  const { data, hora, iso } = nowParts(dataAbertura);
+function mapHistoricoRow(row) {
   return {
-    protocolo: gerarProtocolo(),
-    dataAberturaIso: iso,
-    dataSolicitacao: data,
-    tipoRegistro: 'Atendimento',
+    data: formatarData(row.data_hora),
+    hora: formatarHora(row.data_hora),
+    responsavel: row.responsavel,
+    acao: row.acao,
+    texto: row.texto || undefined,
+    detalhe: row.detalhe || undefined,
+  };
+}
+
+// ------------------------------------------------------------- áreas/usuários
+async function listarAreas() {
+  const { rows } = await pool.query('SELECT id, nome, sigla FROM areas ORDER BY nome');
+  return rows;
+}
+
+async function areaById(id) {
+  const { rows } = await pool.query('SELECT id, nome, sigla FROM areas WHERE id = $1', [id]);
+  return rows[0] || null;
+}
+
+async function usuarioPublico(username) {
+  const { rows } = await pool.query(
+    `SELECT u.username, u.nome, u.area_id, a.nome AS area_nome
+       FROM usuarios u JOIN areas a ON a.id = u.area_id
+      WHERE u.username = $1`,
+    [username]
+  );
+  if (!rows[0]) return null;
+  const r = rows[0];
+  return { username: r.username, nome: r.nome, areaId: r.area_id, area: r.area_nome };
+}
+
+async function autenticar(username, password) {
+  const { rows } = await pool.query('SELECT username, senha, nome, area_id FROM usuarios WHERE username = $1', [
+    (username || '').trim(),
+  ]);
+  const user = rows[0];
+  if (!user || user.senha !== password) return null;
+  return { username: user.username, nome: user.nome, areaId: user.area_id };
+}
+
+async function usuariosDemo() {
+  const { rows } = await pool.query(
+    `SELECT u.username, u.nome, a.nome AS area FROM usuarios u JOIN areas a ON a.id = u.area_id ORDER BY u.username`
+  );
+  return rows;
+}
+
+// ------------------------------------------------------------------ tickets
+async function listar(filtros = {}) {
+  const where = [];
+  const params = [];
+  const add = (clausula, valor) => {
+    params.push(valor);
+    where.push(clausula.replace('?', `$${params.length}`));
+  };
+
+  if (filtros.protocolo) add('protocolo ILIKE ?', `%${filtros.protocolo.trim()}%`);
+  if (filtros.cpfCnpj) add("regexp_replace(cpf_cnpj, '\\D', '', 'g') ILIKE ?", `%${filtros.cpfCnpj.replace(/\D/g, '')}%`);
+  if (filtros.nome) add('nome ILIKE ?', `%${filtros.nome.trim()}%`);
+  if (filtros.areaId) add('area_id = ?', filtros.areaId);
+  if (filtros.assunto) add('assunto = ?', filtros.assunto);
+  if (filtros.situacao) add('situacao = ?', filtros.situacao);
+  if (filtros.origem) add('origem = ?', filtros.origem);
+  if (filtros.responsavel) add('responsavel_nome ILIKE ?', `%${filtros.responsavel.trim()}%`);
+  if (filtros.de) add('data_abertura >= ?', new Date(filtros.de));
+  if (filtros.ate) {
+    const ate = new Date(filtros.ate);
+    ate.setHours(23, 59, 59, 999);
+    add('data_abertura <= ?', ate);
+  }
+
+  const sql = `SELECT * FROM vw_atendimentos ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY data_abertura DESC`;
+  const { rows } = await pool.query(sql, params);
+  return rows.map(mapTicketRow);
+}
+
+async function anexarHistorico(ticket) {
+  const { rows } = await pool.query(
+    'SELECT * FROM atendimento_historico WHERE protocolo = $1 ORDER BY data_hora ASC',
+    [ticket.protocolo]
+  );
+  return { ...ticket, historico: rows.map(mapHistoricoRow) };
+}
+
+async function buscarPorProtocolo(protocolo) {
+  const { rows } = await pool.query('SELECT * FROM vw_atendimentos WHERE protocolo = $1', [protocolo]);
+  if (!rows[0]) return null;
+  return anexarHistorico(mapTicketRow(rows[0]));
+}
+
+async function minhaFila(username) {
+  const { rows } = await pool.query(
+    `SELECT * FROM vw_atendimentos WHERE responsavel_username = $1 AND situacao = 'Em Atendimento' ORDER BY data_abertura ASC`,
+    [username]
+  );
+  return Promise.all(rows.map((r) => anexarHistorico(mapTicketRow(r))));
+}
+
+async function chamarFuncaoTicket(sql, params) {
+  try {
+    const { rows } = await pool.query(sql, params);
+    // As funções fn_* retornam a linha da tabela base `atendimentos`, que não
+    // tem area_nome/prazo_dias (só existem na view) — busca a view para
+    // devolver o ticket completo com os mesmos campos de GET /api/tickets.
+    const { rows: viewRows } = await pool.query('SELECT * FROM vw_atendimentos WHERE protocolo = $1', [
+      rows[0].protocolo,
+    ]);
+    return { ticket: mapTicketRow(viewRows[0]) };
+  } catch (err) {
+    return mapPgErro(err);
+  }
+}
+
+function atender(protocolo, user) {
+  return chamarFuncaoTicket('SELECT * FROM fn_atender_atendimento($1, $2)', [protocolo, user.username]);
+}
+
+function encaminhar(protocolo, user, texto, areaDestinoId) {
+  return chamarFuncaoTicket('SELECT * FROM fn_encaminhar_atendimento($1, $2, $3, $4)', [
+    protocolo,
+    user.username,
+    texto,
+    areaDestinoId,
+  ]);
+}
+
+function finalizar(protocolo, user, texto) {
+  return chamarFuncaoTicket('SELECT * FROM fn_finalizar_atendimento($1, $2, $3)', [protocolo, user.username, texto]);
+}
+
+async function criarOcorrencia({ cpfCnpj, nome, origem, assunto, areaId, ocorrencia, aberturaResponsavel }) {
+  return chamarFuncaoTicket('SELECT * FROM fn_abrir_atendimento($1, $2, $3, $4, $5, $6, $7)', [
     cpfCnpj,
     nome,
     origem,
     assunto,
     areaId,
-    situacao: 'Pendente',
-    responsavelAtual: null,
-    responsavelUsername: null,
     ocorrencia,
-    historico: [
-      {
-        data,
-        hora,
-        responsavel: aberturaResponsavel,
-        acao: 'Abertura',
-        detalhe: `Encaminhou para Área: ${areaById(areaId).nome}`,
-      },
-    ],
+    aberturaResponsavel,
+  ]);
+}
+
+// ------------------------------------------------------- ficha do associado
+async function buscarAssociado(cpfCnpj) {
+  const { rows } = await pool.query('SELECT * FROM vw_associado_ficha WHERE cpf_cnpj = $1', [cpfCnpj]);
+  const a = rows[0];
+  if (!a) return null;
+
+  const { rows: categorias } = await pool.query(
+    'SELECT * FROM risco_categoria WHERE cpf_cnpj = $1 ORDER BY ordem ASC',
+    [cpfCnpj]
+  );
+
+  return {
+    associado: {
+      cpfCnpj: a.cpf_cnpj,
+      nome: a.nome,
+      dataNascimento: a.data_nascimento,
+      dataAssociacao: a.data_associacao,
+      contaDigital: a.conta_digital,
+      contaStatus: a.conta_status,
+      segmento: a.segmento,
+      telefone: a.telefone,
+      email: a.email,
+      situacaoCadastral: a.situacao_cadastral,
+      banco: a.banco,
+      agencia: a.agencia,
+      conta: a.conta,
+      diaVencimento: a.dia_vencimento,
+      rendaMensal: a.renda_mensal,
+      rendaTipo: a.renda_tipo,
+      rendaValidade: a.renda_validade,
+      rendaStatus: a.renda_status,
+    },
+    risco: {
+      riscoAnterior: a.risco_anterior,
+      riscoAtual: a.risco_atual,
+      status: a.risco_status,
+      implantadoEm: a.implantado_em,
+      validade: a.risco_validade,
+      scoreAnterior: a.score_anterior,
+      scoreAtual: a.score_atual,
+    },
+    categorias: categorias.map((c) => ({
+      categoria: c.categoria,
+      scoreAnterior: c.score_anterior,
+      valorAnterior: c.valor_anterior,
+      scoreAtual: c.score_atual,
+      valorAtual: c.valor_atual,
+      alerta: c.alerta,
+    })),
+    lgc: {
+      validade: a.lgc_validade,
+      multiplicadorSegmento: a.multiplicador_segmento,
+      fatorRisco: a.fator_risco,
+      fatorEndividamento: a.fator_endividamento,
+      redutorTemporario: a.redutor_temporario,
+      limiteGlobal: a.limite_global,
+      responsabilidades: a.responsabilidades,
+      liberacoesMes: a.liberacoes_mes,
+      amortizacoesMes: a.amortizacoes_mes,
+      margemOperacional: a.margem_operacional,
+      margemDescontoPercentual: a.margem_desconto_percentual,
+      margemDescontoMaxima: a.margem_desconto_maxima,
+      margemDescontoUtilizada: a.margem_desconto_utilizada,
+      margemDescontoDisponivel: a.margem_desconto_disponivel,
+    },
+    temAnotacaoAtiva: a.tem_anotacao_ativa,
   };
 }
 
-function atenderRegistro(ticket, nomeUsuario, username, quando = new Date()) {
-  const { data, hora } = nowParts(quando);
-  ticket.situacao = 'Em Atendimento';
-  ticket.responsavelAtual = nomeUsuario;
-  ticket.responsavelUsername = username;
-  ticket.historico.push({ data, hora, responsavel: nomeUsuario, acao: 'Assumiu o atendimento' });
+async function executarAnaliseRisco(cpfCnpj) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM fn_executar_analise_risco($1)', [cpfCnpj]);
+    const r = rows[0];
+    return {
+      risco: {
+        riscoAnterior: r.risco_anterior,
+        riscoAtual: r.risco_atual,
+        status: r.status,
+        implantadoEm: r.implantado_em,
+        validade: r.validade,
+        scoreAnterior: r.score_anterior,
+        scoreAtual: r.score_atual,
+      },
+    };
+  } catch (err) {
+    return mapPgErro(err);
+  }
 }
 
-function encaminharRegistro(ticket, nomeUsuario, texto, areaDestinoId, quando = new Date()) {
-  const { data, hora } = nowParts(quando);
-  const destino = areaById(areaDestinoId);
-  ticket.historico.push({
-    data,
-    hora,
-    responsavel: nomeUsuario,
-    acao: 'Resposta / Encaminhamento',
-    texto,
-    detalhe: `Encaminhou para Área: ${destino.nome}`,
+// -------------------------------------------------------------- anotações
+async function listarAnotacoes(cpfCnpj) {
+  const { rows } = await pool.query(
+    `SELECT an.*, t.descricao, t.area_competente_id, ar.nome AS area_competente_nome
+       FROM anotacoes an
+       JOIN anotacoes_tipo t ON t.codigo = an.tipo_codigo
+       JOIN areas ar ON ar.id = t.area_competente_id
+      WHERE an.cpf_cnpj = $1
+      ORDER BY an.data_inclusao DESC`,
+    [cpfCnpj]
+  );
+
+  const mapear = (r) => ({
+    id: r.id,
+    tipoCodigo: r.tipo_codigo,
+    descricao: r.descricao,
+    areaCompetenteId: r.area_competente_id,
+    areaCompetenteNome: r.area_competente_nome,
+    dataInclusao: r.data_inclusao,
+    usuarioInclusao: r.usuario_inclusao,
+    ativa: r.ativa,
+    dataBaixa: r.data_baixa,
+    usuarioBaixa: r.usuario_baixa,
+    motivoBaixa: r.motivo_baixa,
   });
-  ticket.areaId = areaDestinoId;
-  ticket.situacao = 'Pendente';
-  ticket.responsavelAtual = null;
-  ticket.responsavelUsername = null;
+
+  return {
+    ativas: rows.filter((r) => r.ativa).map(mapear),
+    baixadas: rows.filter((r) => !r.ativa).map(mapear),
+  };
 }
 
-function finalizarRegistro(ticket, nomeUsuario, texto, quando = new Date()) {
-  const { data, hora } = nowParts(quando);
-  ticket.situacao = 'Finalizado';
-  ticket.historico.push({ data, hora, responsavel: nomeUsuario, acao: 'Finalizou o atendimento', texto });
-}
-
-class Store {
-  constructor() {
-    this.tickets = this._load();
-  }
-
-  _load() {
-    if (fs.existsSync(DATA_FILE)) {
-      try {
-        const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length) return parsed;
-      } catch (err) {
-        console.error('Falha ao ler data.json, recriando dados de exemplo.', err);
-      }
-    }
-    const seeded = seedTickets();
-    this._persist(seeded);
-    return seeded;
-  }
-
-  _persist(tickets = this.tickets) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(tickets, null, 2), 'utf-8');
-  }
-
-  listar(filtros = {}) {
-    let lista = this.tickets.slice();
-
-    if (filtros.protocolo) {
-      lista = lista.filter((t) => t.protocolo.includes(filtros.protocolo.trim()));
-    }
-    if (filtros.cpfCnpj) {
-      const alvo = filtros.cpfCnpj.replace(/\D/g, '');
-      lista = lista.filter((t) => t.cpfCnpj.replace(/\D/g, '').includes(alvo));
-    }
-    if (filtros.nome) {
-      const alvo = filtros.nome.trim().toLowerCase();
-      lista = lista.filter((t) => t.nome.toLowerCase().includes(alvo));
-    }
-    if (filtros.areaId) {
-      lista = lista.filter((t) => t.areaId === filtros.areaId);
-    }
-    if (filtros.assunto) {
-      lista = lista.filter((t) => t.assunto === filtros.assunto);
-    }
-    if (filtros.situacao) {
-      lista = lista.filter((t) => t.situacao === filtros.situacao);
-    }
-    if (filtros.origem) {
-      lista = lista.filter((t) => t.origem === filtros.origem);
-    }
-    if (filtros.responsavel) {
-      const alvo = filtros.responsavel.trim().toLowerCase();
-      lista = lista.filter((t) => (t.responsavelAtual || '').toLowerCase().includes(alvo));
-    }
-    if (filtros.de) {
-      const de = new Date(filtros.de);
-      lista = lista.filter((t) => new Date(t.dataAberturaIso) >= de);
-    }
-    if (filtros.ate) {
-      const ate = new Date(filtros.ate);
-      ate.setHours(23, 59, 59, 999);
-      lista = lista.filter((t) => new Date(t.dataAberturaIso) <= ate);
-    }
-
-    lista.sort((a, b) => new Date(b.dataAberturaIso) - new Date(a.dataAberturaIso));
-    return lista;
-  }
-
-  buscarPorProtocolo(protocolo) {
-    return this.tickets.find((t) => t.protocolo === protocolo) || null;
-  }
-
-  minhaFila(username) {
-    return this.tickets
-      .filter((t) => t.responsavelUsername === username && t.situacao === 'Em Atendimento')
-      .sort((a, b) => new Date(a.dataAberturaIso) - new Date(b.dataAberturaIso));
-  }
-
-  atender(protocolo, user) {
-    const ticket = this.buscarPorProtocolo(protocolo);
-    if (!ticket) return { erro: 404, mensagem: 'Atendimento não encontrado.' };
-    if (ticket.areaId !== user.areaId) {
-      return { erro: 403, mensagem: 'Este atendimento pertence a outra área e não pode ser atendido por você.' };
-    }
-    if (ticket.situacao !== 'Pendente' || ticket.responsavelAtual) {
-      return {
-        erro: 409,
-        mensagem: `Este atendimento já está sendo tratado por ${ticket.responsavelAtual || 'outro usuário'}.`,
-      };
-    }
-    atenderRegistro(ticket, user.nome, user.username);
-    this._persist();
-    return { ticket };
-  }
-
-  encaminhar(protocolo, user, texto, areaDestinoId) {
-    const ticket = this.buscarPorProtocolo(protocolo);
-    if (!ticket) return { erro: 404, mensagem: 'Atendimento não encontrado.' };
-    if (ticket.responsavelUsername !== user.username) {
-      return { erro: 403, mensagem: 'Somente quem está atendendo pode encaminhar este atendimento.' };
-    }
-    if (!areaById(areaDestinoId)) {
-      return { erro: 400, mensagem: 'Área de destino inválida.' };
-    }
-    if (!texto || !texto.trim()) {
-      return { erro: 400, mensagem: 'Descreva o que foi feito antes de encaminhar.' };
-    }
-    encaminharRegistro(ticket, user.nome, texto.trim(), areaDestinoId);
-    this._persist();
-    return { ticket };
-  }
-
-  finalizar(protocolo, user, texto) {
-    const ticket = this.buscarPorProtocolo(protocolo);
-    if (!ticket) return { erro: 404, mensagem: 'Atendimento não encontrado.' };
-    if (ticket.responsavelUsername !== user.username) {
-      return { erro: 403, mensagem: 'Somente quem está atendendo pode finalizar este atendimento.' };
-    }
-    if (!texto || !texto.trim()) {
-      return { erro: 400, mensagem: 'Descreva o que foi feito antes de finalizar.' };
-    }
-    finalizarRegistro(ticket, user.nome, texto.trim());
-    this._persist();
-    return { ticket };
-  }
-
-  criarOcorrencia({ cpfCnpj, nome, origem, assunto, areaId, ocorrencia, aberturaResponsavel }) {
-    if (!areaById(areaId)) return { erro: 400, mensagem: 'Área de destino inválida.' };
-    const ticket = criarRegistro({
-      dataAbertura: new Date(),
-      cpfCnpj,
-      nome,
-      origem,
-      assunto,
-      areaId,
-      aberturaResponsavel,
-      ocorrencia,
-    });
-    this.tickets.unshift(ticket);
-    this._persist();
-    return { ticket };
+async function baixarAnotacao(id, user, motivo) {
+  try {
+    const { rows } = await pool.query('SELECT * FROM fn_baixar_anotacao($1, $2, $3)', [id, user.username, motivo]);
+    const a = rows[0];
+    return {
+      anotacao: {
+        id: a.id,
+        cpfCnpj: a.cpf_cnpj,
+        tipoCodigo: a.tipo_codigo,
+        ativa: a.ativa,
+        dataBaixa: a.data_baixa,
+        usuarioBaixa: a.usuario_baixa,
+        motivoBaixa: a.motivo_baixa,
+      },
+    };
+  } catch (err) {
+    return mapPgErro(err);
   }
 }
 
-module.exports = new Store();
+module.exports = {
+  listarAreas,
+  areaById,
+  usuarioPublico,
+  autenticar,
+  usuariosDemo,
+  listar,
+  buscarPorProtocolo,
+  minhaFila,
+  atender,
+  encaminhar,
+  finalizar,
+  criarOcorrencia,
+  buscarAssociado,
+  executarAnaliseRisco,
+  listarAnotacoes,
+  baixarAnotacao,
+};
