@@ -68,29 +68,64 @@ public/
   index.html, styles.css, app.js  -> frontend (HTML/CSS/JS puro, sem framework)
 ```
 
-Não encontrei um formato de arquivo padrão chamado "ODC" aplicável a este
-tipo de sistema — se você tinha em mente uma ferramenta/plataforma
-específica com esse nome, me diga qual e eu adapto a exportação/integração
-para o formato exato dela. Enquanto isso, deixei o sistema desacoplado em
-uma **API REST simples**, pensada justamente para você plugar sua lógica
-de agente de IA sem precisar mexer no frontend:
+Já que ODC = **OutSystems Developer Cloud**, a API foi pensada para ser
+consumida de dentro do ODC como uma **REST API Integration**, sem
+precisar duplicar nenhuma regra de negócio lá — a lógica de
+atender/encaminhar/finalizar/bloqueio de sobreposição continua toda no
+servidor Node.
 
-- `POST /api/tickets` — abre uma nova ocorrência (é exatamente o endpoint
-  que um agente de IA conectado ao WhatsApp chamaria para registrar um
-  atendimento automaticamente).
-- `GET /api/tickets?areaId=...&situacao=Pendente` — o agente pode consultar
-  a fila de uma área.
-- `POST /api/tickets/:protocolo/encaminhar` e `.../finalizar` — o agente
-  pode agir como um "usuário" (basta gerar um token de login para ele) e
-  responder/encaminhar/finalizar atendimentos automaticamente.
+### Duas formas de autenticação na API
 
-Ou seja: seu agente de IA pode ser outro cliente dessa mesma API (rodando
-como um processo separado que faz `fetch`/`curl` para
-`http://localhost:3000/api/...`), sem precisar duplicar a lógica de
-regras de negócio que já está no servidor.
+- **Bearer token** (`Authorization: Bearer <token>`, obtido em
+  `POST /api/login` com um dos 3 usuários fictícios) — para ações que
+  representam um atendente humano: atender, encaminhar, finalizar,
+  consultar minha fila.
+- **Chave de API do agente** (`X-Agent-Api-Key: agente-demo-key-123`,
+  configurável pela variável de ambiente `AGENT_API_KEY`) — pensada para
+  o seu agente de IA no ODC chamar `POST /api/tickets` e abrir uma nova
+  ocorrência automaticamente (por exemplo, ao receber uma mensagem no
+  WhatsApp), sem precisar ser um dos atendentes.
 
-## Observações
+### Passo a passo para importar no ODC
+
+1. **Publique este servidor com uma URL pública HTTPS.** O ODC roda na
+   nuvem da OutSystems e não alcança `localhost`; para desenvolvimento
+   rápido dá para usar um túnel (ex.: `ngrok http 3000`), e para algo mais
+   estável, qualquer serviço que rode Node (Render, Railway, Fly.io, uma
+   VM, etc.). Me avise se quiser ajuda para publicar em algum desses.
+2. Com o servidor publicado, acesse `https://SEU-DOMINIO/api/openapi.json`
+   — é a especificação OpenAPI gerada automaticamente com todos os
+   endpoints, parâmetros e schemas.
+3. No **ODC Studio** (ou no Portal ODC), vá em **Integrations** do seu
+   módulo → **Add REST API integration** → importar **a partir de
+   URL/arquivo OpenAPI**, colando a URL do passo 2 (ou baixando o JSON e
+   subindo o arquivo).
+4. O ODC vai gerar automaticamente as *Server Actions* para cada endpoint
+   (`Login`, `GetTickets`, `PostTickets`, `PostTicketsAtender`, etc.),
+   prontas para usar em qualquer lógica visual (Screens, Processes,
+   Timers ou a **AI Agent Builder**).
+5. Configure a autenticação da integração no ODC:
+   - Para o fluxo do **agente de IA** (abrir ocorrências vindas do
+     WhatsApp): adicione o header estático `X-Agent-Api-Key` com o valor
+     de `AGENT_API_KEY` nas configurações da integração (ou passe-o
+     manualmente em cada chamada à Server Action `PostTickets`).
+   - Para ações que simulam um atendente (atender/encaminhar/finalizar):
+     chame primeiro a Server Action de `Login` com um dos logins
+     fictícios, guarde o `token` retornado (ex.: em uma Site
+     Property/Entity, ou por chamada) e use-o no header
+     `Authorization: Bearer <token>` das chamadas seguintes.
+6. A partir daí, sua lógica de agente de IA no ODC decide o que fazer —
+   por exemplo: receber a mensagem do WhatsApp, extrair CPF/assunto com
+   um modelo de linguagem, e chamar `PostTickets` para registrar a
+   ocorrência já direcionada à área correta; ou monitorar
+   `GET /api/tickets?situacao=Pendente&areaId=...` e sugerir respostas
+   para os atendentes.
+
+### Observações
 
 - Autenticação é um esquema simplificado por token em memória — adequado
   para demonstração, não para produção.
+- A chave `agente-demo-key-123` é só um valor padrão de demonstração;
+  em qualquer ambiente real, defina `AGENT_API_KEY` com um segredo
+  próprio antes de publicar o servidor.
 - Todos os dados (nomes, CPFs, ocorrências) são fictícios.

@@ -3,9 +3,16 @@ const path = require('path');
 const crypto = require('crypto');
 const { AREAS, ASSUNTOS, ORIGENS, SITUACOES, USERS, areaById, userByUsername } = require('./data');
 const store = require('./store');
+const openapi = require('./openapi');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Chave fixa de demonstração para o agente de IA (ex.: fluxo no OutSystems ODC)
+// autenticar chamadas de máquina-a-máquina sem precisar de login de um usuário
+// humano. Em um ambiente real, troque por uma chave secreta gerada e guardada
+// em variável de ambiente/segredo do ODC.
+const AGENT_API_KEY = process.env.AGENT_API_KEY || 'agente-demo-key-123';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -28,6 +35,20 @@ function requireAuth(req, res, next) {
   if (!user) return res.status(401).json({ mensagem: 'Não autenticado.' });
   req.user = user;
   next();
+}
+
+// Autenticação alternativa para o endpoint de abertura de ocorrência: aceita
+// tanto um usuário humano logado (Bearer token) quanto a chave do agente de
+// IA (header X-Agent-Api-Key), usada por um fluxo automatizado no ODC que
+// recebe mensagens (ex.: WhatsApp) e registra a ocorrência sem ser um dos
+// 3 atendentes fictícios.
+function requireAuthOuAgente(req, res, next) {
+  const apiKey = req.headers['x-agent-api-key'];
+  if (apiKey && apiKey === AGENT_API_KEY) {
+    req.agente = true;
+    return next();
+  }
+  return requireAuth(req, res, next);
 }
 
 function ticketParaCliente(ticket) {
@@ -84,11 +105,14 @@ app.get('/api/tickets/:protocolo', requireAuth, (req, res) => {
   res.json({ ticket: ticketParaCliente(ticket) });
 });
 
-app.post('/api/tickets', requireAuth, (req, res) => {
-  const { cpfCnpj, nome, origem, assunto, areaId, ocorrencia } = req.body || {};
+app.post('/api/tickets', requireAuthOuAgente, (req, res) => {
+  const { cpfCnpj, nome, origem, assunto, areaId, ocorrencia, aberturaResponsavel } = req.body || {};
   if (!cpfCnpj || !nome || !origem || !assunto || !areaId || !ocorrencia) {
     return res.status(400).json({ mensagem: 'Preencha todos os campos da ocorrência.' });
   }
+  const responsavelAbertura = req.agente
+    ? aberturaResponsavel || 'Agente de IA (WhatsApp)'
+    : `${req.user.nome} (${areaById(req.user.areaId).sigla})`;
   const resultado = store.criarOcorrencia({
     cpfCnpj,
     nome,
@@ -96,7 +120,7 @@ app.post('/api/tickets', requireAuth, (req, res) => {
     assunto,
     areaId,
     ocorrencia,
-    aberturaResponsavel: `${req.user.nome} (${areaById(req.user.areaId).sigla})`,
+    aberturaResponsavel: responsavelAbertura,
   });
   if (resultado.erro) return res.status(resultado.erro).json({ mensagem: resultado.mensagem });
   res.status(201).json({ ticket: ticketParaCliente(resultado.ticket) });
@@ -120,6 +144,12 @@ app.post('/api/tickets/:protocolo/finalizar', requireAuth, (req, res) => {
   const resultado = store.finalizar(req.params.protocolo, req.user, texto);
   if (resultado.erro) return res.status(resultado.erro).json({ mensagem: resultado.mensagem });
   res.json({ ticket: ticketParaCliente(resultado.ticket) });
+});
+
+// Especificação OpenAPI, usada para importar esta API como uma "REST API
+// Integration" no OutSystems Developer Cloud (ODC) — veja o README.
+app.get('/api/openapi.json', (req, res) => {
+  res.json(openapi.build(`${req.protocol}://${req.get('host')}`));
 });
 
 app.listen(PORT, () => {
