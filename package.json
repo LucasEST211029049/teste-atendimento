@@ -1,0 +1,14 @@
+{
+  "name": "comunicador-interareas",
+  "version": "1.0.0",
+  "description": "Sistema ficticio de comunicacao entre areas com registro de atendimentos",
+  "private": true,
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

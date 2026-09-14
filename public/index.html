@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Comunicador entre Áreas</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- TELA DE LOGIN -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <h1>Comunicador entre Áreas</h1>
+      <p class="subtitle">Sistema fictício de registro e encaminhamento de atendimentos</p>
+
+      <form id="login-form">
+        <label>Usuário</label>
+        <input type="text" id="login-username" placeholder="ex: lucas.fic" autocomplete="username" required />
+
+        <label>Senha</label>
+        <input type="password" id="login-password" placeholder="123456" autocomplete="current-password" required />
+
+        <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+        <p id="login-erro" class="login-erro" hidden></p>
+      </form>
+
+      <div class="login-demo">
+        <p>Logins fictícios de demonstração (senha: <strong>123456</strong>):</p>
+        <div id="login-demo-list" class="login-demo-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- APP PRINCIPAL -->
+  <section id="app-screen" class="app-screen" hidden>
+    <header class="topbar">
+      <div class="topbar-title">Comunicador entre Áreas</div>
+      <div class="topbar-user">
+        <span id="user-nome"></span>
+        <span id="user-area" class="user-area-badge"></span>
+        <button id="btn-logout" class="btn btn-ghost">Sair</button>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="consultar">Consultar</button>
+      <button class="tab-btn" data-tab="atender">Atender <span id="badge-fila" class="badge" hidden>0</span></button>
+    </nav>
+
+    <!-- ABA CONSULTAR -->
+    <div id="tab-consultar" class="tab-content active">
+      <div class="panel">
+        <div class="panel-header">
+          <span>Pesquisar Ocorrência</span>
+          <div class="panel-header-actions">
+            <button id="btn-nova-ocorrencia" class="link-btn">+ Nova Ocorrência</button>
+            <button id="btn-toggle-filtros" class="link-btn">Todos os Filtros ▲</button>
+          </div>
+        </div>
+
+        <div id="filtros" class="filtros-grid">
+          <div class="campo">
+            <label>De</label>
+            <input type="date" id="f-de" />
+          </div>
+          <div class="campo">
+            <label>Até</label>
+            <input type="date" id="f-ate" />
+          </div>
+          <div class="campo">
+            <label>Protocolo</label>
+            <input type="text" id="f-protocolo" />
+          </div>
+          <div class="campo">
+            <label>CPF/CNPJ</label>
+            <input type="text" id="f-cpfcnpj" />
+          </div>
+          <div class="campo">
+            <label>Nome/Razão Social</label>
+            <input type="text" id="f-nome" />
+          </div>
+
+          <div class="campo">
+            <label>Área</label>
+            <select id="f-area"><option value="">Todas</option></select>
+          </div>
+          <div class="campo">
+            <label>Tipo de Registro</label>
+            <select id="f-tipo" disabled><option>Atendimento</option></select>
+          </div>
+          <div class="campo">
+            <label>Assuntos</label>
+            <select id="f-assunto"><option value="">Todos</option></select>
+          </div>
+          <div class="campo">
+            <label>Situação</label>
+            <select id="f-situacao"><option value="">Todas</option></select>
+          </div>
+          <div class="campo">
+            <label>Origem</label>
+            <select id="f-origem"><option value="">Todas</option></select>
+          </div>
+
+          <div class="campo">
+            <label>Responsável</label>
+            <input type="text" id="f-responsavel" />
+          </div>
+        </div>
+
+        <div class="filtros-actions">
+          <button id="btn-limpar" class="btn btn-secondary">Limpar</button>
+          <button id="btn-pesquisar" class="btn btn-primary">Pesquisar</button>
+        </div>
+      </div>
+
+      <div class="tabela-wrap">
+        <table class="tabela">
+          <thead>
+            <tr>
+              <th>Protocolo</th>
+              <th>Solicitação</th>
+              <th>Tipo de Registro</th>
+              <th>CPF/CNPJ</th>
+              <th>Nome/Razão Social</th>
+              <th>Origem</th>
+              <th>Assunto</th>
+              <th>Área</th>
+              <th>Responsável</th>
+              <th>Situação</th>
+              <th>Prazo</th>
+            </tr>
+          </thead>
+          <tbody id="tabela-body"></tbody>
+        </table>
+        <p id="tabela-vazio" class="tabela-vazio" hidden>Nenhuma ocorrência encontrada para os filtros informados.</p>
+      </div>
+    </div>
+
+    <!-- ABA ATENDER (minha fila) -->
+    <div id="tab-atender" class="tab-content">
+      <div class="panel">
+        <div class="panel-header"><span>Meus Atendimentos em Andamento</span></div>
+        <p class="fila-descricao">Ocorrências que você assumiu e ainda não finalizou ou encaminhou.</p>
+      </div>
+      <div id="fila-lista" class="fila-lista"></div>
+      <p id="fila-vazia" class="tabela-vazio" hidden>Você não possui atendimentos em andamento no momento.</p>
+    </div>
+  </section>
+
+  <!-- MODAL: NOVA OCORRÊNCIA -->
+  <div id="modal-nova" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <span>Nova Ocorrência</span>
+        <button class="modal-close" data-close="modal-nova">✕</button>
+      </div>
+      <form id="form-nova">
+        <div class="campo">
+          <label>CPF/CNPJ</label>
+          <input type="text" id="n-cpfcnpj" required />
+        </div>
+        <div class="campo">
+          <label>Nome/Razão Social</label>
+          <input type="text" id="n-nome" required />
+        </div>
+        <div class="campo">
+          <label>Origem</label>
+          <select id="n-origem" required></select>
+        </div>
+        <div class="campo">
+          <label>Assunto</label>
+          <select id="n-assunto" required></select>
+        </div>
+        <div class="campo">
+          <label>Encaminhar para Área</label>
+          <select id="n-area" required></select>
+        </div>
+        <div class="campo">
+          <label>Ocorrência</label>
+          <textarea id="n-ocorrencia" rows="4" required></textarea>
+        </div>
+        <p id="nova-erro" class="login-erro" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" data-close="modal-nova">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Registrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <template id="tpl-linha">
+    <tr class="linha-ticket">
+      <td class="col-protocolo"></td>
+      <td class="col-solicitacao"></td>
+      <td class="col-tipo"></td>
+      <td class="col-cpf"></td>
+      <td class="col-nome"></td>
+      <td class="col-origem"></td>
+      <td class="col-assunto"></td>
+      <td class="col-area"></td>
+      <td class="col-responsavel"></td>
+      <td class="col-situacao"></td>
+      <td class="col-prazo"><span class="prazo-badge"></span> <span class="chevron">▾</span></td>
+    </tr>
+    <tr class="linha-detalhe" hidden>
+      <td colspan="11"></td>
+    </tr>
+  </template>
+
+  <template id="tpl-detalhe">
+    <div class="detalhe">
+      <div class="detalhe-header">
+        <strong>Protocolo: <span class="d-protocolo"></span></strong>
+      </div>
+      <div class="detalhe-linha">
+        <div><span class="d-label">(Abertura) Data:</span> <span class="d-data"></span></div>
+        <div><span class="d-label">Hora:</span> <span class="d-hora"></span></div>
+        <div><span class="d-label">Responsável:</span> <span class="d-abertura-resp"></span></div>
+      </div>
+      <div class="detalhe-linha">
+        <div><span class="d-label">Tipo de Registro:</span> Atendimento</div>
+        <div><span class="d-label">Assunto:</span> <span class="d-assunto"></span></div>
+      </div>
+      <div class="detalhe-ocorrencia">
+        <span class="d-label">Ocorrência:</span>
+        <p class="d-ocorrencia-texto"></p>
+      </div>
+      <div class="detalhe-historico">
+        <strong>Histórico</strong>
+        <div class="d-historico-lista"></div>
+      </div>
+      <div class="d-acao-area"></div>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
