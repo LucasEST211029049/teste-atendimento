@@ -9,7 +9,7 @@
     "dev": "node server/index.js",
     "db:schema": "psql \"${DATABASE_URL:-postgres://comunicador:comunicador@localhost:5432/comunicador}\" -f db/schema.sql",
     "db:seed": "psql \"${DATABASE_URL:-postgres://comunicador:comunicador@localhost:5432/comunicador}\" -f db/seed.sql",
-    "db:setup": "npm run db:schema && npm run db:seed"
+    "db:setup": "node scripts/migrate.js"
   },
   "dependencies": {
     "express": "^4.19.2",
