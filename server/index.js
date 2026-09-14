@@ -213,6 +213,16 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ mensagem: 'Erro interno do servidor.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Comunicador entre áreas rodando em http://localhost:${PORT}`);
-});
+const { ensureMigrado } = require('../scripts/migrate');
+
+ensureMigrado()
+  .then((migrou) => {
+    if (migrou) console.log('Banco vazio detectado: schema.sql e seed.sql aplicados automaticamente.');
+    app.listen(PORT, () => {
+      console.log(`Comunicador entre áreas rodando em http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Falha ao aplicar schema/seed automaticamente:', err);
+    process.exit(1);
+  });
