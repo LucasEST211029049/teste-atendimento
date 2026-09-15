@@ -286,7 +286,7 @@
     const acaoArea = frag.querySelector('.d-acao-area');
     montarAcaoArea(acaoArea, t);
 
-    frag.querySelector('.d-btn-ficha').addEventListener('click', () => abrirFicha(t.cpfCnpj));
+    frag.querySelector('.d-btn-ficha').addEventListener('click', () => abrirFichaModal(t.cpfCnpj));
 
     container.innerHTML = '';
     container.appendChild(frag);
@@ -456,34 +456,50 @@
     return Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  document.querySelectorAll('.subtab-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.subtab-btn').forEach((b) => b.classList.remove('active'));
-      document.querySelectorAll('.subtab-content').forEach((c) => c.classList.remove('active'));
-      btn.classList.add('active');
-      el(`ficha-sub-${btn.dataset.subtab}`).classList.add('active');
-    });
+  // Alterna as sub-abas "Risco Associado/LGC" / "Anotações Cadastrais" dentro
+  // do .ficha-viewer mais próximo — o mesmo bloco de markup é reaproveitado
+  // tanto no modal (aberto a partir de um atendimento) quanto na aba
+  // "Risco / Restrições" (busca direta por CPF/CNPJ).
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.subtab-btn');
+    if (!btn) return;
+    const viewer = btn.closest('.ficha-viewer');
+    viewer.querySelectorAll('.subtab-btn').forEach((b) => b.classList.remove('active'));
+    viewer.querySelectorAll('.subtab-content').forEach((c) => c.classList.remove('active'));
+    btn.classList.add('active');
+    viewer.querySelector(`[data-role="sub-${btn.dataset.subtab}"]`).classList.add('active');
   });
 
-  async function abrirFicha(cpfCnpj) {
+  async function abrirFichaModal(cpfCnpj) {
     el('modal-ficha').hidden = false;
-    el('ficha-topo').innerHTML = 'Carregando...';
-    el('ficha-risco-corpo').innerHTML = 'Carregando...';
-    el('ficha-anotacoes-corpo').innerHTML = 'Carregando...';
+    const viewer = el('modal-ficha').querySelector('.ficha-viewer');
+    await carregarFicha(viewer, cpfCnpj);
+  }
+
+  async function carregarFicha(viewer, cpfCnpj) {
+    const riscoCorpo = viewer.querySelector('[data-role="risco-corpo"]');
+    const anotacoesCorpo = viewer.querySelector('[data-role="anotacoes-corpo"]');
+    viewer.querySelector('[data-role="topo"]').innerHTML = 'Carregando...';
+    riscoCorpo.innerHTML = 'Carregando...';
+    anotacoesCorpo.innerHTML = 'Carregando...';
     try {
       const ficha = await api(`/associados/${encodeURIComponent(cpfCnpj)}`);
-      renderFichaTopo(ficha.associado);
-      renderFichaRisco(ficha);
-      const anotacoes = await api(`/associados/${encodeURIComponent(cpfCnpj)}/anotacoes`);
-      renderFichaAnotacoes(anotacoes, cpfCnpj);
+      const cpfCanonico = ficha.associado.cpfCnpj;
+      renderFichaTopo(viewer, ficha.associado);
+      renderFichaRisco(viewer, ficha);
+      const anotacoes = await api(`/associados/${encodeURIComponent(cpfCanonico)}/anotacoes`);
+      renderFichaAnotacoes(viewer, anotacoes, cpfCanonico);
+      return true;
     } catch (err) {
-      el('ficha-risco-corpo').innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message)}</p>`;
-      el('ficha-anotacoes-corpo').innerHTML = '';
+      viewer.querySelector('[data-role="topo"]').innerHTML = '';
+      riscoCorpo.innerHTML = `<p style="color:#c0392b;">${escapeHtml(err.message)}</p>`;
+      anotacoesCorpo.innerHTML = '';
+      return false;
     }
   }
 
-  function renderFichaTopo(a) {
-    el('ficha-topo').innerHTML = `
+  function renderFichaTopo(viewer, a) {
+    viewer.querySelector('[data-role="topo"]').innerHTML = `
       <div class="ft-linha">
         <div class="ft-item"><span class="rotulo">CPF/CNPJ:</span>${a.cpfCnpj}</div>
         <div class="ft-item"><span class="rotulo">Nome:</span>${escapeHtml(a.nome)}</div>
@@ -513,7 +529,7 @@
     return 'situacao-bloqueado';
   }
 
-  function renderFichaRisco(ficha) {
+  function renderFichaRisco(viewer, ficha) {
     const { risco, categorias, lgc, temAnotacaoAtiva, associado } = ficha;
 
     const linhasCategoria = categorias.length
@@ -531,9 +547,9 @@
           .join('')
       : '<tr><td colspan="5" class="anotacao-vazia">Sem detalhamento por categoria.</td></tr>';
 
-    el('ficha-risco-corpo').innerHTML = `
+    viewer.querySelector('[data-role="risco-corpo"]').innerHTML = `
       <div class="ficha-acoes">
-        <button class="btn btn-primary" id="btn-analise-risco">Executar Nova Análise de Risco</button>
+        <button class="btn btn-primary btn-analise-risco">Executar Nova Análise de Risco</button>
       </div>
       ${temAnotacaoAtiva ? '<p class="aviso-outra-area">⚠ Existe anotação interna ativa bloqueando o risco deste associado — veja a aba "Anotações Cadastrais".</p>' : ''}
       <table class="risco-tabela">
@@ -576,18 +592,18 @@
       </div>
     `;
 
-    el('btn-analise-risco').addEventListener('click', async () => {
+    viewer.querySelector('.btn-analise-risco').addEventListener('click', async () => {
       try {
         await api(`/associados/${encodeURIComponent(associado.cpfCnpj)}/analise-risco`, { method: 'POST' });
         toast('Nova análise de risco executada com sucesso.');
-        await abrirFicha(associado.cpfCnpj);
+        await carregarFicha(viewer, associado.cpfCnpj);
       } catch (err) {
         toast(err.message, 'erro');
       }
     });
   }
 
-  function renderFichaAnotacoes(dados, cpfCnpj) {
+  function renderFichaAnotacoes(viewer, dados, cpfCnpj) {
     const podeBaixar = (an) => state.user.areaId === an.areaCompetenteId;
 
     const cardAtiva = (an) => `
@@ -614,14 +630,15 @@
       </div>
     `;
 
-    el('ficha-anotacoes-corpo').innerHTML = `
+    const anotacoesCorpo = viewer.querySelector('[data-role="anotacoes-corpo"]');
+    anotacoesCorpo.innerHTML = `
       <h4 style="margin:6px 0;">Anotações Ativas</h4>
       ${dados.ativas.length ? dados.ativas.map(cardAtiva).join('') : '<p class="anotacao-vazia">Não há restrições cadastradas para o associado.</p>'}
       <h4 style="margin:18px 0 6px;">Anotações Baixadas</h4>
       ${dados.baixadas.length ? dados.baixadas.map(cardBaixada).join('') : '<p class="anotacao-vazia">Não há restrições baixadas para o associado.</p>'}
     `;
 
-    el('ficha-anotacoes-corpo').querySelectorAll('.btn-baixar').forEach((btn) => {
+    anotacoesCorpo.querySelectorAll('.btn-baixar').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const motivo = prompt('Descreva o motivo da baixa desta anotação:');
         if (motivo === null) return;
@@ -629,13 +646,28 @@
         try {
           await api(`/anotacoes/${btn.dataset.id}/baixar`, { method: 'POST', body: { motivo: motivo.trim() } });
           toast('Anotação baixada com sucesso.');
-          await abrirFicha(cpfCnpj);
+          await carregarFicha(viewer, cpfCnpj);
         } catch (err) {
           toast(err.message, 'erro');
         }
       });
     });
   }
+
+  // -------------------------------------- ABA RISCO / RESTRIÇÕES (busca CPF)
+  async function buscarRiscoPorCpf() {
+    const cpf = el('risco-cpf-input').value.trim();
+    if (!cpf) return toast('Digite um CPF/CNPJ para buscar.', 'erro');
+    el('risco-aviso').hidden = true;
+    el('risco-resultado').hidden = false;
+    const viewer = document.querySelector('#risco-resultado .ficha-viewer');
+    await carregarFicha(viewer, cpf);
+  }
+
+  el('btn-buscar-risco').addEventListener('click', buscarRiscoPorCpf);
+  el('risco-cpf-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') buscarRiscoPorCpf();
+  });
 
   // ------------------------------------------------------ NOVA OCORRÊNCIA --
   el('btn-nova-ocorrencia').addEventListener('click', () => { el('modal-nova').hidden = false; });

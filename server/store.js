@@ -189,10 +189,19 @@ async function criarOcorrencia({ cpfCnpj, nome, origem, assunto, areaId, ocorren
 }
 
 // ------------------------------------------------------- ficha do associado
-async function buscarAssociado(cpfCnpj) {
-  const { rows } = await pool.query('SELECT * FROM vw_associado_ficha WHERE cpf_cnpj = $1', [cpfCnpj]);
+async function buscarAssociado(cpfCnpjBusca) {
+  // Aceita o CPF/CNPJ tanto formatado quanto só com dígitos (busca manual
+  // na aba "Risco / Restrições" não deve exigir pontuação exata).
+  const { rows } = await pool.query(
+    `SELECT * FROM vw_associado_ficha
+      WHERE cpf_cnpj = $1
+         OR regexp_replace(cpf_cnpj, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
+      LIMIT 1`,
+    [cpfCnpjBusca]
+  );
   const a = rows[0];
   if (!a) return null;
+  const cpfCnpj = a.cpf_cnpj;
 
   const { rows: categorias } = await pool.query(
     'SELECT * FROM risco_categoria WHERE cpf_cnpj = $1 ORDER BY ordem ASC',

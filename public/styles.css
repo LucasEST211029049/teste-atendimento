@@ -276,3 +276,7 @@ button { font-family: inherit; cursor: pointer; }
 .anotacao-card .an-meta { font-size: 12px; color: #666; margin-bottom: 6px; }
 .anotacao-card .an-acoes { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .anotacao-vazia { color: #888; padding: 10px 0; font-size: 13px; }
+
+.busca-cpf-linha { display: flex; align-items: flex-end; gap: 14px; padding: 16px; }
+.busca-cpf-linha .campo { flex: 1; max-width: 320px; margin: 0; }
+#risco-resultado .ficha-viewer { background: #fff; border: 1px solid var(--cinza-borda); border-radius: 4px; padding: 16px; }

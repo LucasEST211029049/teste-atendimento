@@ -46,6 +46,7 @@
     <nav class="tabs">
       <button class="tab-btn active" data-tab="consultar">Consultar</button>
       <button class="tab-btn" data-tab="atender">Atender <span id="badge-fila" class="badge" hidden>0</span></button>
+      <button class="tab-btn" data-tab="risco">Risco / Restrições</button>
     </nav>
 
     <!-- ABA CONSULTAR -->
@@ -146,6 +147,36 @@
       <div id="fila-lista" class="fila-lista"></div>
       <p id="fila-vazia" class="tabela-vazio" hidden>Você não possui atendimentos em andamento no momento.</p>
     </div>
+
+    <!-- ABA RISCO / RESTRIÇÕES (consulta direta por CPF/CNPJ) -->
+    <div id="tab-risco" class="tab-content">
+      <div class="panel">
+        <div class="panel-header"><span>Consultar Risco, Limite e Anotações</span></div>
+        <div class="busca-cpf-linha">
+          <div class="campo">
+            <label>CPF/CNPJ</label>
+            <input type="text" id="risco-cpf-input" placeholder="ex: 170.519.317-09" />
+          </div>
+          <button id="btn-buscar-risco" class="btn btn-primary">Buscar</button>
+        </div>
+      </div>
+      <p id="risco-aviso" class="tabela-vazio">Digite um CPF/CNPJ acima e clique em Buscar.</p>
+      <div id="risco-resultado" hidden>
+        <div class="ficha-viewer">
+          <div class="ficha-topo" data-role="topo"></div>
+          <nav class="tabs tabs-sub">
+            <button class="subtab-btn active" data-subtab="risco">Risco Associado/LGC</button>
+            <button class="subtab-btn" data-subtab="anotacoes">Anotações Cadastrais</button>
+          </nav>
+          <div class="subtab-content active" data-role="sub-risco">
+            <div data-role="risco-corpo">Carregando...</div>
+          </div>
+          <div class="subtab-content" data-role="sub-anotacoes">
+            <div data-role="anotacoes-corpo">Carregando...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- MODAL: NOVA OCORRÊNCIA -->
@@ -197,18 +228,20 @@
         <button class="modal-close" data-close="modal-ficha">✕</button>
       </div>
       <div class="ficha-corpo">
-        <div class="ficha-topo" id="ficha-topo"></div>
+        <div class="ficha-viewer">
+          <div class="ficha-topo" data-role="topo"></div>
 
-        <nav class="tabs tabs-sub">
-          <button class="subtab-btn active" data-subtab="risco">Risco Associado/LGC</button>
-          <button class="subtab-btn" data-subtab="anotacoes">Anotações Cadastrais</button>
-        </nav>
+          <nav class="tabs tabs-sub">
+            <button class="subtab-btn active" data-subtab="risco">Risco Associado/LGC</button>
+            <button class="subtab-btn" data-subtab="anotacoes">Anotações Cadastrais</button>
+          </nav>
 
-        <div id="ficha-sub-risco" class="subtab-content active">
-          <div id="ficha-risco-corpo">Carregando...</div>
-        </div>
-        <div id="ficha-sub-anotacoes" class="subtab-content">
-          <div id="ficha-anotacoes-corpo">Carregando...</div>
+          <div class="subtab-content active" data-role="sub-risco">
+            <div data-role="risco-corpo">Carregando...</div>
+          </div>
+          <div class="subtab-content" data-role="sub-anotacoes">
+            <div data-role="anotacoes-corpo">Carregando...</div>
+          </div>
         </div>
       </div>
     </div>
