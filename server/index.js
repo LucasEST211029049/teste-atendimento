@@ -14,6 +14,12 @@ const PORT = process.env.PORT || 3000;
 // em variável de ambiente/segredo do ODC.
 const AGENT_API_KEY = process.env.AGENT_API_KEY || 'agente-demo-key-123';
 
+// URL do endpoint TriagemAPI publicado no OutSystems ODC — direção oposta à
+// da chave acima: aqui é o NOSSO app chamando o agente de IA hospedado no
+// ODC para pedir uma análise/decisão sobre um atendimento. Sem essa env var
+// configurada, o botão "Consultar Agente de IA" fica desabilitado.
+const ODC_TRIAGEM_URL = process.env.ODC_TRIAGEM_URL || '';
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -83,7 +89,7 @@ app.get(
   requireAuth,
   asyncRoute(async (_req, res) => {
     const areas = await store.listarAreas();
-    res.json({ areas, assuntos: ASSUNTOS, origens: ORIGENS, situacoes: SITUACOES });
+    res.json({ areas, assuntos: ASSUNTOS, origens: ORIGENS, situacoes: SITUACOES, agenteIaConfigurado: Boolean(ODC_TRIAGEM_URL) });
   })
 );
 
@@ -163,6 +169,63 @@ app.post(
   asyncRoute(async (req, res) => {
     const { texto } = req.body || {};
     envia(res, await store.finalizar(req.params.protocolo, req.user, texto));
+  })
+);
+
+// Consulta o agente de IA de triagem publicado no OutSystems ODC
+// (endpoint TriagemAPI/Analisar), passando os dados do atendimento atual, e
+// registra a decisão recebida no histórico. Só quem está atendendo o
+// protocolo pode acionar — mesma regra de encaminhar/finalizar.
+app.post(
+  '/api/tickets/:protocolo/analisar-ia',
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    if (!ODC_TRIAGEM_URL) {
+      return res.status(501).json({
+        mensagem: 'Integração com o agente de IA (ODC) não configurada: defina a variável de ambiente ODC_TRIAGEM_URL.',
+      });
+    }
+
+    const ticket = await store.buscarPorProtocolo(req.params.protocolo);
+    if (!ticket) return res.status(404).json({ mensagem: 'Atendimento não encontrado.' });
+    if (ticket.responsavelUsername !== req.user.username) {
+      return res.status(403).json({ mensagem: 'Somente quem está atendendo pode consultar o agente de IA sobre este atendimento.' });
+    }
+
+    const { userInput, sessionId } = req.body || {};
+    const payload = {
+      SessionId: sessionId || `ticket-${ticket.protocolo}-${Date.now()}`,
+      UserInput: userInput || ticket.ocorrencia,
+      Protocolo: ticket.protocolo,
+      Assunto: ticket.assunto,
+      Ocorrencia: ticket.ocorrencia,
+      NomeAssociado: ticket.nome,
+      CpfCnpj: ticket.cpfCnpj.replace(/\D/g, ''),
+    };
+
+    let respostaOdc;
+    try {
+      const r = await fetch(ODC_TRIAGEM_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error(`o agente respondeu com status ${r.status}`);
+      respostaOdc = await r.json();
+    } catch (err) {
+      return res.status(502).json({ mensagem: `Falha ao consultar o agente de IA no ODC: ${err.message}` });
+    }
+
+    let decisao;
+    try {
+      decisao = JSON.parse(respostaOdc.Response);
+    } catch (_err) {
+      decisao = { bruto: respostaOdc.Response };
+    }
+
+    await store.registrarConsultaIA(ticket.protocolo, req.user.nome, payload, decisao);
+
+    res.json({ payload, decisao });
   })
 );
 

@@ -176,6 +176,18 @@ function finalizar(protocolo, user, texto) {
   return chamarFuncaoTicket('SELECT * FROM fn_finalizar_atendimento($1, $2, $3)', [protocolo, user.username, texto]);
 }
 
+// Registra no histórico do atendimento que o agente de IA (ODC) foi
+// consultado e qual foi a decisão recebida — não muda situação/área do
+// atendimento, é só um registro informativo para quem for revisar depois.
+async function registrarConsultaIA(protocolo, nomeUsuario, payload, decisao) {
+  const resumo = typeof decisao === 'object' ? JSON.stringify(decisao) : String(decisao);
+  await pool.query(
+    `INSERT INTO atendimento_historico (protocolo, responsavel, acao, texto, detalhe)
+     VALUES ($1, $2, 'Consultou Agente de IA (ODC)', $3, $4)`,
+    [protocolo, nomeUsuario, resumo, `SessionId: ${payload.SessionId}`]
+  );
+}
+
 async function criarOcorrencia({ cpfCnpj, nome, origem, assunto, areaId, ocorrencia, aberturaResponsavel }) {
   return chamarFuncaoTicket('SELECT * FROM fn_abrir_atendimento($1, $2, $3, $4, $5, $6, $7)', [
     cpfCnpj,
@@ -350,6 +362,7 @@ module.exports = {
   atender,
   encaminhar,
   finalizar,
+  registrarConsultaIA,
   criarOcorrencia,
   buscarAssociado,
   executarAnaliseRisco,

@@ -207,6 +207,42 @@ function build(baseUrl) {
           },
         },
       },
+      '/api/tickets/{protocolo}/analisar-ia': {
+        post: {
+          summary:
+            'Consulta o agente de IA de triagem publicado no OutSystems ODC (endpoint TriagemAPI/Analisar) ' +
+            'com os dados deste atendimento, e registra a decisão recebida no histórico. Requer a variável ' +
+            'de ambiente ODC_TRIAGEM_URL configurada no servidor; só quem está atendendo o protocolo pode chamar.',
+          parameters: [{ name: 'protocolo', in: 'path', required: true, schema: { type: 'string' } }],
+          requestBody: {
+            required: false,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    userInput: { type: 'string', description: 'Texto livre a enviar como UserInput; usa a ocorrência original se omitido.' },
+                    sessionId: { type: 'string', description: 'SessionId a reutilizar; gera um novo se omitido.' },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            200: {
+              description: 'Decisão do agente de IA',
+              content: {
+                'application/json': {
+                  schema: { type: 'object', properties: { payload: { type: 'object' }, decisao: { type: 'object' } } },
+                },
+              },
+            },
+            403: { description: 'Usuário não é o responsável atual', content: { 'application/json': { schema: erroSchema } } },
+            501: { description: 'ODC_TRIAGEM_URL não configurada', content: { 'application/json': { schema: erroSchema } } },
+            502: { description: 'Falha ao consultar o agente de IA no ODC', content: { 'application/json': { schema: erroSchema } } },
+          },
+        },
+      },
       '/api/associados/{cpfCnpj}': {
         get: {
           summary: 'Ficha cadastral do associado: dados cadastrais, risco/score e LGC/limite',

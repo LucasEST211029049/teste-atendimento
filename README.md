@@ -208,12 +208,52 @@ consulta/relatório, ou se você já usa **External Entities** no seu módulo):
    Isso aciona exatamente a mesma regra (competência da área, bloqueio de
    sobreposição, etc.) que o app Node usa — sem duplicar lógica no ODC.
 
+### Caminho C — nosso app chamando o agente de IA hospedado no ODC
+
+Os caminhos A e B são o **ODC chamando este app** (ou o banco dele). Este
+caminho é o **inverso**: o agente de triagem/decisão fica publicado no ODC
+(endpoint `TriagemAPI/Analisar`), e é este app que o aciona a partir de um
+atendimento — o botão **"🤖 Consultar Agente de IA"**, dentro do formulário
+de um atendimento que você está atendendo.
+
+1. No ODC Portal → asset `atendimentos` → aba de ambientes, pegue a URL
+   pública do módulo publicado.
+2. Configure a variável de ambiente do servidor Node:
+   ```
+   ODC_TRIAGEM_URL=https://SEU-DOMINIO-ODC/atendimentos/rest/TriagemAPI/Analisar
+   ```
+   Sem essa variável definida, o botão fica oculto (endpoint responde 501).
+3. Ao clicar no botão, o app monta o payload no contrato combinado e faz o
+   POST:
+   ```json
+   {
+     "SessionId": "ticket-<protocolo>-<timestamp>",
+     "UserInput": "<ocorrência original do atendimento>",
+     "Protocolo": "<protocolo>",
+     "Assunto": "<assunto>",
+     "Ocorrencia": "<ocorrência>",
+     "NomeAssociado": "<nome>",
+     "CpfCnpj": "<cpf/cnpj só dígitos>"
+   }
+   ```
+4. A resposta (`{ "Response": "<json serializado>" }`) é decodificada; os
+   campos `Decisao`/`Justificativa` aparecem na tela, a `Justificativa`
+   já pré-preenche o campo "Resposta / O que foi feito" (o atendente
+   revisa antes de encaminhar/finalizar), e a consulta inteira fica
+   registrada no histórico do atendimento como "Consultou Agente de IA
+   (ODC)".
+5. Endpoint correspondente nesta API: `POST /api/tickets/{protocolo}/analisar-ia`
+   (documentado também em `/api/openapi.json`) — só quem está atendendo o
+   protocolo pode chamar; `userInput`/`sessionId` no corpo são opcionais.
+
 ## Observações
 
 - Autenticação da API é um esquema simplificado por token em memória —
   adequado para demonstração, não para produção.
 - A chave `agente-demo-key-123` é só um valor padrão de demonstração; em
   qualquer ambiente real, defina `AGENT_API_KEY` com um segredo próprio.
+- `ODC_TRIAGEM_URL` é opcional; sem ela, o app funciona normalmente e só o
+  botão "Consultar Agente de IA" fica indisponível.
 - A descrição da anotação "233" é fictícia/placeholder — troque o texto em
   `anotacoes_tipo` (tabela ou `db/seed.sql`) pelo que fizer sentido para
   você; o código (233) e a competência (COADM) já ficam corretos.
