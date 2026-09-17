@@ -150,15 +150,14 @@ INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, s
 INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao, detalhe) VALUES
   ('06485541059', now() - INTERVAL '1 day', 'Camilla Alexandre da Silva (ATEND)', 'Abertura', 'Encaminhou para Área: DIREL / GECRE / CREDI');
 
--- 3) Já em atendimento (para demonstrar bloqueio de sobreposição)
-INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, situacao, responsavel_nome, responsavel_username, ocorrencia, data_abertura) VALUES
-  ('61106396258', '098.765.432-11', 'João Pedro Lima', 'E-mail', 'Cartão / Bloqueio e Desbloqueio', 'direl-gecre-credi', 'Em Atendimento', 'Lucas Oliveira', 'lucas.fic',
+-- 3) Pendente, ainda não atendido (antes vinha pré-atendido; agora fica em
+--    branco como os demais, para todo teste começar do mesmo estado "zero")
+INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, situacao, ocorrencia, data_abertura) VALUES
+  ('61106396258', '098.765.432-11', 'João Pedro Lima', 'E-mail', 'Cartão / Bloqueio e Desbloqueio', 'direl-gecre-credi', 'Pendente',
    'Cliente solicita desbloqueio do cartão de crédito após viagem internacional.',
    now() - INTERVAL '2 days');
 INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao, detalhe) VALUES
   ('61106396258', now() - INTERVAL '2 days', 'Camilla Alexandre da Silva (ATEND)', 'Abertura', 'Encaminhou para Área: DIREL / GECRE / CREDI');
-INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao) VALUES
-  ('61106396258', now() - INTERVAL '2 days' + INTERVAL '5 minutes', 'Lucas Oliveira', 'Assumiu o atendimento');
 
 -- 4) Área COADM, pendente (ligado à pendência cadastral 233)
 INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, situacao, ocorrencia, data_abertura) VALUES
@@ -168,17 +167,14 @@ INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, s
 INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao, detalhe) VALUES
   ('32165498720', now(), 'Bruna Nascimento (ATEND)', 'Abertura', 'Encaminhou para Área: DIREL / GECOR / COADM');
 
--- 5) Área ATEND, já finalizado
-INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, situacao, responsavel_nome, responsavel_username, ocorrencia, data_abertura) VALUES
-  ('55611240077', '556.112.400-77', 'Cláudia Ramos Vieira', 'Chat Site', 'Cobrança / Renegociação de Dívida', 'direl-gecan-atend', 'Finalizado', 'Funcionário Padrão', 'funcionario.fic',
+-- 5) Pendente, ainda não atendido (antes vinha finalizado; agora fica em
+--    branco como os demais, para todo teste começar do mesmo estado "zero")
+INSERT INTO atendimentos (protocolo, cpf_cnpj, nome, origem, assunto, area_id, situacao, ocorrencia, data_abertura) VALUES
+  ('55611240077', '556.112.400-77', 'Cláudia Ramos Vieira', 'Chat Site', 'Cobrança / Renegociação de Dívida', 'direl-gecan-atend', 'Pendente',
    'Cliente deseja renegociar parcelas em atraso do cartão de crédito.',
    now() - INTERVAL '4 days');
 INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao, detalhe) VALUES
   ('55611240077', now() - INTERVAL '4 days', 'Bruna Nascimento (ATEND)', 'Abertura', 'Encaminhou para Área: DIREL / GECAN / ATEND');
-INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao) VALUES
-  ('55611240077', now() - INTERVAL '3 days', 'Funcionário Padrão', 'Assumiu o atendimento');
-INSERT INTO atendimento_historico (protocolo, data_hora, responsavel, acao, texto) VALUES
-  ('55611240077', now() - INTERVAL '3 days' + INTERVAL '10 minutes', 'Funcionário Padrão', 'Finalizou o atendimento', 'Renegociação concluída, novo boleto enviado por e-mail.');
 
 -- 6) Encaminhado entre áreas: aberto na ATEND, atendido, e encaminhado
 --    para a CREDI (onde fica pendente novamente) — o associado está

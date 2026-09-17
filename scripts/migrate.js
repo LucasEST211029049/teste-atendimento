@@ -49,4 +49,11 @@ if (require.main === module) {
   })();
 }
 
-module.exports = { ensureMigrado };
+// Reaplica só o seed (schema e funções continuam como estão) — usado pelo
+// endpoint de reset, para voltar a base de demonstração ao estado inicial
+// sob demanda, sem precisar de acesso direto ao Postgres.
+async function resetarSeed() {
+  await aplicar('seed.sql');
+}
+
+module.exports = { ensureMigrado, resetarSeed };

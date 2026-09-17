@@ -213,8 +213,11 @@ consulta/relatório, ou se você já usa **External Entities** no seu módulo):
 Os caminhos A e B são o **ODC chamando este app** (ou o banco dele). Este
 caminho é o **inverso**: o agente de triagem/decisão fica publicado no ODC
 (endpoint `TriagemAPI/Analisar`), e é este app que o aciona a partir de um
-atendimento — o botão **"🤖 Consultar Agente de IA"**, dentro do formulário
-de um atendimento que você está atendendo.
+atendimento — o botão **"🤖 Consultar Agente de IA"**. Ele aparece em dois
+momentos: com o atendimento ainda `Pendente` (qualquer usuário da área dona
+do atendimento pode consultar, antes mesmo de assumir — útil para decidir
+se vale a pena atender) e com o atendimento `Em Atendimento` (só quem
+assumiu, dentro do formulário de resposta).
 
 1. No ODC Portal → asset `atendimentos` → aba de ambientes, pegue a URL
    pública do módulo publicado.
@@ -243,8 +246,27 @@ de um atendimento que você está atendendo.
    registrada no histórico do atendimento como "Consultou Agente de IA
    (ODC)".
 5. Endpoint correspondente nesta API: `POST /api/tickets/{protocolo}/analisar-ia`
-   (documentado também em `/api/openapi.json`) — só quem está atendendo o
-   protocolo pode chamar; `userInput`/`sessionId` no corpo são opcionais.
+   (documentado também em `/api/openapi.json`). Permissão: se o atendimento
+   está `Pendente`, qualquer usuário da área dona dele pode chamar; se está
+   `Em Atendimento`, só quem assumiu; `Finalizado` não permite mais.
+   `userInput`/`sessionId` no corpo são opcionais.
+
+## Resetando os dados de demonstração
+
+Para voltar a base ao estado inicial (todos os 6 atendimentos `Pendente`,
+sem responsável, anotações 233/234 ativas de novo) sem precisar de acesso
+direto ao Postgres — útil ao testar repetidamente o fluxo do agente do ODC
+num ambiente publicado (ex.: Render), onde você não tem um psql à mão:
+
+```bash
+curl -X POST https://SEU-DOMINIO/api/admin/reset-seed \
+  -H "X-Admin-Key: reset-demo-key-123"
+```
+
+A chave é a variável de ambiente `ADMIN_RESET_KEY` (mesmo padrão do
+`AGENT_API_KEY`: valor fixo de demonstração se não for definida). Isso
+reaplica só `db/seed.sql` (schema e funções continuam como estão) —
+mesmo efeito de rodar `npm run db:seed` local, mas acionável remotamente.
 
 ## Observações
 
@@ -254,6 +276,9 @@ de um atendimento que você está atendendo.
   qualquer ambiente real, defina `AGENT_API_KEY` com um segredo próprio.
 - `ODC_TRIAGEM_URL` é opcional; sem ela, o app funciona normalmente e só o
   botão "Consultar Agente de IA" fica indisponível.
+- A chave `reset-demo-key-123` (endpoint de reset) é só um valor padrão de
+  demonstração; em qualquer ambiente real, defina `ADMIN_RESET_KEY` com um
+  segredo próprio.
 - A descrição da anotação "233" é fictícia/placeholder — troque o texto em
   `anotacoes_tipo` (tabela ou `db/seed.sql`) pelo que fizer sentido para
   você; o código (233) e a competência (COADM) já ficam corretos.

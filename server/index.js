@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { ASSUNTOS, ORIGENS, SITUACOES } = require('./data');
 const store = require('./store');
 const openapi = require('./openapi');
+const { ensureMigrado, resetarSeed } = require('../scripts/migrate');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,11 @@ const AGENT_API_KEY = process.env.AGENT_API_KEY || 'agente-demo-key-123';
 // ODC para pedir uma análise/decisão sobre um atendimento. Sem essa env var
 // configurada, o botão "Consultar Agente de IA" fica desabilitado.
 const ODC_TRIAGEM_URL = process.env.ODC_TRIAGEM_URL || '';
+
+// Chave para o endpoint de reset (abaixo) — permite reaplicar db/seed.sql
+// sob demanda, sem precisar de acesso direto ao Postgres. Só para este
+// ambiente de demonstração fictício.
+const ADMIN_RESET_KEY = process.env.ADMIN_RESET_KEY || 'reset-demo-key-123';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -188,8 +194,23 @@ app.post(
 
     const ticket = await store.buscarPorProtocolo(req.params.protocolo);
     if (!ticket) return res.status(404).json({ mensagem: 'Atendimento não encontrado.' });
-    if (ticket.responsavelUsername !== req.user.username) {
-      return res.status(403).json({ mensagem: 'Somente quem está atendendo pode consultar o agente de IA sobre este atendimento.' });
+
+    // Mesma regra de quem pode agir sobre o atendimento em cada estado:
+    // Pendente -> qualquer um da área dona do atendimento (ainda não tem
+    // responsável definido); Em Atendimento -> só quem assumiu. Consultar
+    // a IA é só consulta (não muda o atendimento), então liberamos também
+    // antes de alguém "Atender" — a ideia é poder pedir a análise da IA
+    // para decidir se vale a pena assumir o atendimento.
+    const podeConsultar =
+      (ticket.situacao === 'Pendente' && ticket.areaId === req.user.areaId) ||
+      (ticket.situacao === 'Em Atendimento' && ticket.responsavelUsername === req.user.username);
+    if (!podeConsultar) {
+      return res.status(403).json({
+        mensagem:
+          ticket.situacao === 'Finalizado'
+            ? 'Este atendimento já foi finalizado.'
+            : 'Você não tem acesso para consultar o agente de IA sobre este atendimento.',
+      });
     }
 
     const { userInput, sessionId } = req.body || {};
@@ -275,12 +296,25 @@ app.get('/api/openapi.json', (req, res) => {
   res.json(openapi.build(`${req.protocol}://${req.get('host')}`));
 });
 
+// Reseta a base de demonstração para o estado inicial (reaplica db/seed.sql:
+// TRUNCATE + INSERT dos dados fictícios) — útil para voltar tudo a
+// "ninguém atendeu nada ainda" entre rodadas de teste, sem precisar de
+// acesso direto ao Postgres do ambiente publicado (ex.: Render).
+app.post(
+  '/api/admin/reset-seed',
+  asyncRoute(async (req, res) => {
+    if (req.headers['x-admin-key'] !== ADMIN_RESET_KEY) {
+      return res.status(401).json({ mensagem: 'Chave de administração inválida.' });
+    }
+    await resetarSeed();
+    res.json({ ok: true, mensagem: 'Dados de demonstração resetados (db/seed.sql reaplicado).' });
+  })
+);
+
 app.use((err, _req, res, _next) => {
   console.error(err);
   res.status(500).json({ mensagem: 'Erro interno do servidor.' });
 });
-
-const { ensureMigrado } = require('../scripts/migrate');
 
 ensureMigrado()
   .then((migrou) => {

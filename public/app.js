@@ -312,6 +312,11 @@
         container.innerHTML = '<span class="aviso-outra-area">Este atendimento pertence a outra área. Você pode visualizar, mas não atender.</span>';
         return;
       }
+      // Consultar a IA é permitido antes de assumir o atendimento — ajuda a
+      // decidir se vale a pena atender, sem precisar "reservar" o protocolo
+      // primeiro só para poder perguntar à IA.
+      if (state.config.agenteIaConfigurado) container.appendChild(montarBlocoIA(t));
+
       const btn = document.createElement('button');
       btn.className = 'btn btn-primary';
       btn.textContent = 'Atender';
@@ -341,6 +346,46 @@
     container.appendChild(montarFormularioAcao(t));
   }
 
+  // Bloco reaproveitável "Consultar Agente de IA": aparece tanto num
+  // atendimento Pendente (antes de assumir) quanto Em Atendimento (dentro
+  // do formulário de resposta). `aoObterJustificativa` é opcional — usado
+  // pelo formulário de ação para pré-preencher o campo de resposta.
+  function montarBlocoIA(t, aoObterJustificativa) {
+    const bloco = document.createElement('div');
+    bloco.className = 'ia-bloco';
+    bloco.innerHTML = `
+      <button type="button" class="btn btn-secondary btn-consultar-ia">🤖 Consultar Agente de IA</button>
+      <div class="ia-resultado" hidden></div>
+    `;
+
+    const btnIa = bloco.querySelector('.btn-consultar-ia');
+    btnIa.addEventListener('click', async () => {
+      const textoOriginal = btnIa.textContent;
+      btnIa.disabled = true;
+      btnIa.textContent = 'Consultando...';
+      try {
+        const { decisao } = await api(`/tickets/${t.protocolo}/analisar-ia`, { method: 'POST', body: {} });
+        const resultado = bloco.querySelector('.ia-resultado');
+        const decisaoTexto = decisao.Decisao || decisao.decisao || '';
+        const justificativa = decisao.Justificativa || decisao.justificativa || '';
+        resultado.hidden = false;
+        resultado.innerHTML = `
+          ${decisaoTexto ? `<div class="ia-decisao">Decisão do agente: <strong>${escapeHtml(decisaoTexto)}</strong></div>` : ''}
+          <div class="ia-justificativa">${escapeHtml(justificativa || JSON.stringify(decisao))}</div>
+        `;
+        if (justificativa && aoObterJustificativa) aoObterJustificativa(justificativa);
+        toast('Agente de IA consultado com sucesso.');
+      } catch (err) {
+        toast(err.message, 'erro');
+      } finally {
+        btnIa.disabled = false;
+        btnIa.textContent = textoOriginal;
+      }
+    });
+
+    return bloco;
+  }
+
   function montarFormularioAcao(t) {
     const wrap = document.createElement('div');
     wrap.className = 'acao-form';
@@ -349,14 +394,6 @@
     const optionsAreas = areas.map((a) => `<option value="${a.id}">${a.nome}${a.id === t.areaId ? ' (área atual)' : ''}</option>`).join('');
 
     wrap.innerHTML = `
-      ${
-        state.config.agenteIaConfigurado
-          ? `<div class="ia-bloco">
-               <button type="button" class="btn btn-secondary btn-consultar-ia">🤖 Consultar Agente de IA</button>
-               <div class="ia-resultado" hidden></div>
-             </div>`
-          : ''
-      }
       <div class="campo">
         <label>Resposta / O que foi feito</label>
         <textarea rows="3" class="acao-texto" placeholder="Descreva o atendimento realizado..."></textarea>
@@ -371,31 +408,8 @@
       </div>
     `;
 
-    const btnIa = wrap.querySelector('.btn-consultar-ia');
-    if (btnIa) {
-      btnIa.addEventListener('click', async () => {
-        const textoOriginal = btnIa.textContent;
-        btnIa.disabled = true;
-        btnIa.textContent = 'Consultando...';
-        try {
-          const { decisao } = await api(`/tickets/${t.protocolo}/analisar-ia`, { method: 'POST', body: {} });
-          const resultado = wrap.querySelector('.ia-resultado');
-          const decisaoTexto = decisao.Decisao || decisao.decisao || '';
-          const justificativa = decisao.Justificativa || decisao.justificativa || '';
-          resultado.hidden = false;
-          resultado.innerHTML = `
-            ${decisaoTexto ? `<div class="ia-decisao">Decisão do agente: <strong>${escapeHtml(decisaoTexto)}</strong></div>` : ''}
-            <div class="ia-justificativa">${escapeHtml(justificativa || JSON.stringify(decisao))}</div>
-          `;
-          if (justificativa) wrap.querySelector('.acao-texto').value = justificativa;
-          toast('Agente de IA consultado com sucesso.');
-        } catch (err) {
-          toast(err.message, 'erro');
-        } finally {
-          btnIa.disabled = false;
-          btnIa.textContent = textoOriginal;
-        }
-      });
+    if (state.config.agenteIaConfigurado) {
+      wrap.prepend(montarBlocoIA(t, (justificativa) => { wrap.querySelector('.acao-texto').value = justificativa; }));
     }
 
     wrap.querySelector('.acao-encaminhar').addEventListener('click', async () => {

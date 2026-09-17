@@ -212,7 +212,8 @@ function build(baseUrl) {
           summary:
             'Consulta o agente de IA de triagem publicado no OutSystems ODC (endpoint TriagemAPI/Analisar) ' +
             'com os dados deste atendimento, e registra a decisão recebida no histórico. Requer a variável ' +
-            'de ambiente ODC_TRIAGEM_URL configurada no servidor; só quem está atendendo o protocolo pode chamar.',
+            'de ambiente ODC_TRIAGEM_URL configurada no servidor. Permissão: atendimento Pendente -> qualquer ' +
+            'usuário da área dona dele; Em Atendimento -> só quem assumiu; Finalizado -> não permitido.',
           parameters: [{ name: 'protocolo', in: 'path', required: true, schema: { type: 'string' } }],
           requestBody: {
             required: false,
