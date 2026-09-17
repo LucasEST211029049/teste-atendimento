@@ -210,7 +210,11 @@ app.post(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!r.ok) throw new Error(`o agente respondeu com status ${r.status}`);
+      if (!r.ok) {
+        const corpoErro = await r.text().catch(() => '');
+        console.error('ODC TriagemAPI respondeu erro:', r.status, corpoErro);
+        throw new Error(`o agente respondeu com status ${r.status}${corpoErro ? ` — ${corpoErro.slice(0, 500)}` : ''}`);
+      }
       respostaOdc = await r.json();
     } catch (err) {
       return res.status(502).json({ mensagem: `Falha ao consultar o agente de IA no ODC: ${err.message}` });
