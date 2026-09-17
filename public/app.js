@@ -277,6 +277,7 @@
           <span>Hora: <strong>${h.hora}</strong></span>
           <span>Responsável: <strong>${h.responsavel}</strong></span>
         </div>
+        <div class="h-acao">${escapeHtml(h.acao)}</div>
         ${h.texto ? `<div class="h-texto">${escapeHtml(h.texto)}</div>` : ''}
         ${h.detalhe ? `<div class="h-detalhe">${escapeHtml(h.detalhe)}</div>` : ''}
       `;
