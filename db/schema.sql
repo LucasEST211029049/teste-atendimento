@@ -263,6 +263,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
+-- Resolve um CPF/CNPJ informado (com ou sem pontuação) para o valor
+-- exatamente como está gravado em `associados` — usado por qualquer
+-- função/consulta que receba o CPF de fora (ex.: o agente de IA do ODC,
+-- que envia só dígitos) para não depender de o chamador mandar a
+-- formatação exata. Retorna NULL se não encontrar nenhum associado.
+CREATE OR REPLACE FUNCTION fn_resolver_cpf(p_cpf text) RETURNS text AS $$
+  SELECT cpf_cnpj FROM associados
+   WHERE cpf_cnpj = p_cpf
+      OR regexp_replace(cpf_cnpj, '\D', '', 'g') = regexp_replace(p_cpf, '\D', '', 'g')
+   LIMIT 1;
+$$ LANGUAGE sql STABLE;
+
 -- Executa nova análise de risco: promove atual->anterior, gera novo
 -- score/risco e revalida por 1 ano. Enquanto houver anotação ativa, o
 -- resultado da análise é calculado mas o status permanece "Bloqueado"
@@ -270,18 +282,20 @@ $$ LANGUAGE plpgsql IMMUTABLE;
 CREATE OR REPLACE FUNCTION fn_executar_analise_risco(p_cpf text)
 RETURNS risco_associado AS $$
 DECLARE
+  v_cpf text;
   v_bloqueado boolean;
   v_novo_score integer;
   r risco_associado;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM risco_associado WHERE cpf_cnpj = p_cpf) THEN
+  v_cpf := fn_resolver_cpf(p_cpf);
+  IF v_cpf IS NULL OR NOT EXISTS (SELECT 1 FROM risco_associado WHERE cpf_cnpj = v_cpf) THEN
     RAISE EXCEPTION 'NAO_ENCONTRADO: associado % não possui ficha de risco', p_cpf;
   END IF;
 
-  SELECT EXISTS(SELECT 1 FROM anotacoes WHERE cpf_cnpj = p_cpf AND ativa) INTO v_bloqueado;
+  SELECT EXISTS(SELECT 1 FROM anotacoes WHERE cpf_cnpj = v_cpf AND ativa) INTO v_bloqueado;
 
   SELECT LEAST(950, score_atual + 10 + floor(random() * 20)::int) INTO v_novo_score
-    FROM risco_associado WHERE cpf_cnpj = p_cpf;
+    FROM risco_associado WHERE cpf_cnpj = v_cpf;
 
   UPDATE risco_associado
      SET risco_anterior = risco_atual,
@@ -292,7 +306,7 @@ BEGIN
          validade       = CURRENT_DATE + INTERVAL '1 year',
          status         = CASE WHEN v_bloqueado THEN 'Bloqueado'::status_risco ELSE 'Vigente'::status_risco END,
          atualizado_em  = now()
-   WHERE cpf_cnpj = p_cpf
+   WHERE cpf_cnpj = v_cpf
    RETURNING * INTO r;
 
   RETURN r;
@@ -345,6 +359,7 @@ CREATE OR REPLACE FUNCTION fn_abrir_atendimento(
   p_area_id text, p_ocorrencia text, p_responsavel_abertura text
 ) RETURNS atendimentos AS $$
 DECLARE
+  v_cpf text;
   v_protocolo text;
   v_area_nome text;
   t atendimentos;
@@ -354,13 +369,17 @@ BEGIN
     RAISE EXCEPTION 'DADOS_INVALIDOS: área de destino inválida';
   END IF;
 
-  INSERT INTO associados(cpf_cnpj, nome) VALUES (p_cpf, p_nome)
+  -- Reaproveita o associado já cadastrado (mesmo que o CPF tenha vindo só
+  -- com dígitos) em vez de criar um segundo registro com formatação diferente.
+  v_cpf := COALESCE(fn_resolver_cpf(p_cpf), p_cpf);
+
+  INSERT INTO associados(cpf_cnpj, nome) VALUES (v_cpf, p_nome)
   ON CONFLICT (cpf_cnpj) DO NOTHING;
 
   v_protocolo := lpad(floor(random() * 100000000000)::bigint::text, 11, '0');
 
   INSERT INTO atendimentos(protocolo, cpf_cnpj, nome, origem, assunto, area_id, ocorrencia)
-  VALUES (v_protocolo, p_cpf, p_nome, p_origem, p_assunto, p_area_id, p_ocorrencia)
+  VALUES (v_protocolo, v_cpf, p_nome, p_origem, p_assunto, p_area_id, p_ocorrencia)
   RETURNING * INTO t;
 
   INSERT INTO atendimento_historico(protocolo, responsavel, acao, detalhe)

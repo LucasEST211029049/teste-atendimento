@@ -306,6 +306,7 @@ async function listarAnotacoes(cpfCnpj) {
        JOIN anotacoes_tipo t ON t.codigo = an.tipo_codigo
        JOIN areas ar ON ar.id = t.area_competente_id
       WHERE an.cpf_cnpj = $1
+         OR regexp_replace(an.cpf_cnpj, '\\D', '', 'g') = regexp_replace($1, '\\D', '', 'g')
       ORDER BY an.data_inclusao DESC`,
     [cpfCnpj]
   );

@@ -17,14 +17,21 @@ async function jaExisteSchema() {
   return rows[0].existe !== null;
 }
 
-// Idempotente: só roda schema+seed se as tabelas ainda não existirem, para
-// nunca resetar dados de uma instância já em uso (ex.: a cada restart do
-// free tier do Render após período de inatividade).
+// Idempotente: schema+seed só rodam se as tabelas ainda não existirem
+// (nunca reseta dados de uma instância já em uso — ex.: a cada restart do
+// free tier do Render após período de inatividade). Já functions.sql
+// SEMPRE roda, mesmo com o schema já existente: são só CREATE OR REPLACE
+// FUNCTION, não apagam dado nenhum, e é assim que correções de função
+// (ex.: aceitar CPF sem pontuação) chegam a um banco que já tinha dados
+// antes da correção existir.
 async function ensureMigrado() {
-  if (await jaExisteSchema()) return false;
-  await aplicar('schema.sql');
-  await aplicar('seed.sql');
-  return true;
+  const jaExiste = await jaExisteSchema();
+  if (!jaExiste) {
+    await aplicar('schema.sql');
+    await aplicar('seed.sql');
+  }
+  await aplicar('functions.sql');
+  return !jaExiste;
 }
 
 if (require.main === module) {
@@ -32,6 +39,7 @@ if (require.main === module) {
     try {
       await aplicar('schema.sql');
       await aplicar('seed.sql');
+      await aplicar('functions.sql');
     } catch (err) {
       console.error(err);
       process.exitCode = 1;
